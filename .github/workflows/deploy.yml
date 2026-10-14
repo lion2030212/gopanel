@@ -7,9 +7,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./apps/admin_panel
     steps:
       - uses: actions/checkout@v4
       
@@ -18,8 +15,13 @@ jobs:
           flutter-version: '3.x'
           channel: 'stable'
           
-      - run: flutter pub get
-      - run: flutter build web --release --base-href "/gopanel/"
+      - name: Get dependencies
+        run: flutter pub get
+        working-directory: apps/admin_panel
+
+      - name: Build web
+        run: flutter build web --release --base-href "/gopanel/"
+        working-directory: apps/admin_panel
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
