@@ -8,17 +8,22 @@ class SupportHistoryTab extends StatefulWidget {
   const SupportHistoryTab({
     required this.client,
     required this.adminToken,
-    required this.userId,
-    required this.userRole,
+    this.userId,
+    this.userRole,
+    this.adminId,
     required this.ticketsMode,
     required this.onSessionExpired,
     super.key,
-  });
+  }) : assert(
+          (userId != null && userRole != null && adminId == null) ||
+              (userId == null && userRole == null && adminId != null),
+        );
 
   final Dio client;
   final String adminToken;
-  final int userId;
-  final String userRole;
+  final int? userId;
+  final String? userRole;
+  final String? adminId;
   final bool ticketsMode;
   final ValueChanged<String> onSessionExpired;
 
@@ -30,6 +35,7 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
   static const _pageSize = 50;
 
   String _period = 'all';
+  String _partyRole = 'all';
   DateTimeRange? _customRange;
   List<Map<String, dynamic>> _items = [];
   int _page = 0;
@@ -65,7 +71,13 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId ||
         oldWidget.userRole != widget.userRole ||
+        oldWidget.adminId != widget.adminId ||
         oldWidget.ticketsMode != widget.ticketsMode) {
+      _items = [];
+      _selectedRecordId = null;
+      _selectedRecord = null;
+      _detail = null;
+      _messages = [];
       unawaited(_loadHistory(reset: true));
     }
   }
@@ -74,6 +86,9 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     switch (_period) {
+      case 'day':
+        return DateTimeRange(
+            start: today, end: today.add(const Duration(days: 1)));
       case 'week':
         final daysSinceSaturday = (now.weekday + 1) % 7;
         final start = today.subtract(Duration(days: daysSinceSaturday));
@@ -135,11 +150,16 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       _error = null;
     });
     final query = <String, dynamic>{
-      'userId': widget.userId,
-      'userRole': widget.userRole,
       'page': page,
       'limit': _pageSize,
     };
+    if (widget.adminId != null) {
+      query['adminId'] = widget.adminId;
+      query['userRole'] = _partyRole;
+    } else {
+      query['userId'] = widget.userId;
+      query['userRole'] = widget.userRole;
+    }
     final range = _selectedRange();
     if (range != null) {
       query['startAt'] = _formatDateTime(range.start);
@@ -425,29 +445,16 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       children: [
         Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 4),
-          child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: widget.ticketsMode ? 'فترة الشكاوى' : 'فترة المحادثات',
-              border: const OutlineInputBorder(),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _period,
-                isExpanded: true,
-                items: const [
-                  DropdownMenuItem(value: 'all', child: Text('الكل')),
-                  DropdownMenuItem(value: 'week', child: Text('أسبوع')),
-                  DropdownMenuItem(value: 'month', child: Text('شهر')),
-                  DropdownMenuItem(value: 'custom', child: Text('مدة محددة')),
-                ],
-                onChanged: (period) {
-                  if (period != null) unawaited(_selectPeriod(period));
-                },
-              ),
-            ),
-          ),
+          child: widget.adminId == null
+              ? _buildPeriodFilter()
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildPartyFilter(),
+                    const SizedBox(height: 8),
+                    _buildPeriodFilter(),
+                  ],
+                ),
         ),
         if (_period == 'custom' && _customRange != null)
           Padding(
@@ -511,4 +518,49 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       ],
     );
   }
+
+  Widget _buildPartyFilter() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('صاحب السجل', style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 6),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'all', label: Text('الكل')),
+              ButtonSegment(value: 'driver', label: Text('السائق')),
+              ButtonSegment(value: 'rider', label: Text('الراكب')),
+            ],
+            selected: {_partyRole},
+            onSelectionChanged: (selection) {
+              setState(() => _partyRole = selection.first);
+              unawaited(_loadHistory(reset: true));
+            },
+          ),
+        ],
+      );
+
+  Widget _buildPeriodFilter() => InputDecorator(
+        decoration: InputDecoration(
+          labelText: widget.ticketsMode ? 'فترة الشكاوى' : 'فترة المحادثات',
+          border: const OutlineInputBorder(),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String>(
+            value: _period,
+            isExpanded: true,
+            items: const [
+              DropdownMenuItem(value: 'all', child: Text('الكل')),
+              DropdownMenuItem(value: 'day', child: Text('يوم')),
+              DropdownMenuItem(value: 'week', child: Text('أسبوع')),
+              DropdownMenuItem(value: 'month', child: Text('شهر')),
+              DropdownMenuItem(value: 'custom', child: Text('مدة محددة')),
+            ],
+            onChanged: (period) {
+              if (period != null) unawaited(_selectPeriod(period));
+            },
+          ),
+        ),
+      );
 }

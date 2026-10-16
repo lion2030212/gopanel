@@ -44,6 +44,12 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   DateTimeRange? _couponCustomRange;
   String _rideHistoryPeriod = 'week';
   DateTimeRange? _rideHistoryCustomRange;
+  String _settlementsPeriod = 'week';
+  DateTimeRange? _settlementsCustomRange;
+  final Set<String> _settlementCategories = {};
+  String _activityPeriod = 'week';
+  DateTimeRange? _activityCustomRange;
+  final Set<String> _activityCategories = {};
   String _ratingsPeriod = 'week';
   DateTimeRange? _ratingsCustomRange;
 
@@ -386,12 +392,15 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1280),
-            child: _details == null && !_loadingDetails
-                ? _buildRiderList()
-                : _buildRiderProfile(),
+        child: Padding(
+          padding: const EdgeInsets.only(top: 64),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1280),
+              child: _details == null && !_loadingDetails
+                  ? _buildRiderList()
+                  : _buildRiderProfile(),
+            ),
           ),
         ),
       ),
@@ -707,6 +716,168 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     return DateTime.tryParse(value)?.toLocal();
   }
 
+  Future<void> _selectFinancialActivityPeriod(
+    String period, {
+    required bool activity,
+  }) async {
+    if (period == 'custom') {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final currentRange =
+          activity ? _activityCustomRange : _settlementsCustomRange;
+      final selectedRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(1900),
+        lastDate: DateTime(2100),
+        initialDateRange:
+            currentRange ?? DateTimeRange(start: today, end: today),
+        helpText: activity ? 'اختر مدة النشاط' : 'اختر مدة التسويات',
+        cancelText: 'إلغاء',
+        confirmText: 'تطبيق',
+        saveText: 'تطبيق',
+      );
+      if (!mounted || selectedRange == null) return;
+      setState(() {
+        if (activity) {
+          _activityPeriod = period;
+          _activityCustomRange = selectedRange;
+        } else {
+          _settlementsPeriod = period;
+          _settlementsCustomRange = selectedRange;
+        }
+      });
+      return;
+    }
+    setState(() {
+      if (activity) {
+        _activityPeriod = period;
+      } else {
+        _settlementsPeriod = period;
+      }
+    });
+  }
+
+  DateTimeRange? _recordPeriodRange(
+    String period,
+    DateTimeRange? customRange,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (period) {
+      case 'day':
+        return DateTimeRange(
+            start: today, end: today.add(const Duration(days: 1)));
+      case 'week':
+        final daysSinceSaturday = (now.weekday + 1) % 7;
+        final weekStart = today.subtract(Duration(days: daysSinceSaturday));
+        return DateTimeRange(
+            start: weekStart, end: weekStart.add(const Duration(days: 7)));
+      case 'month':
+        return DateTimeRange(
+            start: DateTime(now.year, now.month),
+            end: DateTime(now.year, now.month + 1));
+      case 'custom':
+        if (customRange == null) return null;
+        final start = DateTime(customRange.start.year, customRange.start.month,
+            customRange.start.day);
+        final end = DateTime(customRange.end.year, customRange.end.month,
+                customRange.end.day)
+            .add(const Duration(days: 1));
+        return DateTimeRange(start: start, end: end);
+      default:
+        return null;
+    }
+  }
+
+  DateTime? _dateFromRecord(
+    Map<String, dynamic> record,
+    List<String> dateKeys,
+  ) {
+    for (final key in dateKeys) {
+      final value = record[key];
+      if (key == 'capturedAtMs') {
+        final milliseconds = value is num
+            ? value.toInt()
+            : int.tryParse(value?.toString() ?? '');
+        if (milliseconds != null) {
+          return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true)
+              .toLocal();
+        }
+      }
+      final date = _rideHistoryDate(value);
+      if (date != null) return date;
+    }
+    return null;
+  }
+
+  Widget _recordPeriodFilter({
+    required String period,
+    required DateTimeRange? customRange,
+    required String label,
+    required ValueChanged<String> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: period,
+            isExpanded: true,
+            decoration: InputDecoration(labelText: label),
+            items: const [
+              DropdownMenuItem(value: 'day', child: Text('يوم')),
+              DropdownMenuItem(value: 'week', child: Text('أسبوع')),
+              DropdownMenuItem(value: 'month', child: Text('شهر')),
+              DropdownMenuItem(value: 'custom', child: Text('مدة محددة')),
+              DropdownMenuItem(value: 'all', child: Text('كل الفترات')),
+            ],
+            onChanged: (value) {
+              if (value != null) onChanged(value);
+            },
+          ),
+          if (period == 'custom' && customRange != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '${intl.DateFormat('y/MM/dd').format(customRange.start)}'
+                ' - ${intl.DateFormat('y/MM/dd').format(customRange.end)}',
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _groupCategoryFilter({
+    required Map<String, String> categories,
+    required Set<String> selectedCategories,
+    required ValueChanged<String?> onChanged,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              FilterChip(
+                label: const Text('كل التصنيفات'),
+                selected: selectedCategories.isEmpty,
+                onSelected: (_) => onChanged(null),
+              ),
+              for (final entry in categories.entries) ...[
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: Text(entry.value),
+                  selected: selectedCategories.contains(entry.key),
+                  onSelected: (_) => onChanged(entry.key),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+
   Widget _buildRiderProfile() {
     if (_loadingDetails) {
       return const Center(child: CircularProgressIndicator());
@@ -756,7 +927,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                 IconButton(
                   tooltip: 'العودة للقائمة',
                   onPressed: _handleDashboardBack,
-                  icon: const Icon(Icons.arrow_forward),
+                  icon: const Icon(Icons.arrow_back),
                 ),
                 Expanded(
                   child: Text(
@@ -808,7 +979,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                   _records(details['chatMessages']),
                 ),
                 _walletTab(wallet, profileMap),
-                _groupedRecords(financialRecords),
+                _settlementsTab(financialRecords),
                 _ratingsTab(
                   _records(details['ratings'])
                       .where((rating) =>
@@ -1274,15 +1445,148 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     if (location is Map) {
       sections['الموقع الحالي'] = [Map<String, dynamic>.from(location)];
     }
-    return _groupedRecords(sections);
+    return Column(
+      children: [
+        _recordPeriodFilter(
+          period: _activityPeriod,
+          customRange: _activityCustomRange,
+          label: 'فترة النشاط',
+          onChanged: (period) => unawaited(_selectFinancialActivityPeriod(
+            period,
+            activity: true,
+          )),
+        ),
+        _groupCategoryFilter(
+          categories: {for (final key in sections.keys) key: key},
+          selectedCategories: _activityCategories,
+          onChanged: (category) => setState(() {
+            if (category == null) {
+              _activityCategories.clear();
+            } else if (_activityCategories.contains(category)) {
+              _activityCategories.remove(category);
+            } else {
+              _activityCategories.add(category);
+            }
+          }),
+        ),
+        Expanded(
+          child: _groupedRecords(
+            sections,
+            period: _activityPeriod,
+            range: _recordPeriodRange(_activityPeriod, _activityCustomRange),
+            dateForRecord: _activityRecordDate,
+            keepUndated: true,
+            selectedCategories: _activityCategories,
+          ),
+        ),
+      ],
+    );
   }
 
-  Widget _groupedRecords(Map<String, dynamic> groups) {
+  Widget _settlementsTab(Map<String, dynamic> financialRecords) {
+    return Column(
+      children: [
+        _recordPeriodFilter(
+          period: _settlementsPeriod,
+          customRange: _settlementsCustomRange,
+          label: 'فترة التسويات',
+          onChanged: (period) => unawaited(_selectFinancialActivityPeriod(
+            period,
+            activity: false,
+          )),
+        ),
+        _groupCategoryFilter(
+          categories: const {
+            'shortfalls': 'عجوزات الرحلات',
+            'shortfallRecoveries': 'استردادات العجوزات',
+            'cancellationFees': 'تسويات رسوم الإلغاء',
+            'cancellationFeeRecoveries': 'تحصيل رسوم الإلغاء',
+            'reversals': 'عكس التسوية',
+            'ledgerEntries': 'دفتر عمولات ورسوم التطبيق',
+          },
+          selectedCategories: _settlementCategories,
+          onChanged: (category) => setState(() {
+            if (category == null) {
+              _settlementCategories.clear();
+            } else if (_settlementCategories.contains(category)) {
+              _settlementCategories.remove(category);
+            } else {
+              _settlementCategories.add(category);
+            }
+          }),
+        ),
+        Expanded(
+          child: _groupedRecords(
+            financialRecords,
+            period: _settlementsPeriod,
+            range:
+                _recordPeriodRange(_settlementsPeriod, _settlementsCustomRange),
+            dateForRecord: _settlementRecordDate,
+            keepUndated: false,
+            selectedCategories: _settlementCategories,
+          ),
+        ),
+      ],
+    );
+  }
+
+  DateTime? _settlementRecordDate(
+    String group,
+    Map<String, dynamic> record,
+  ) =>
+      _dateFromRecord(record, const [
+        'createdAt',
+        'settledAt',
+        'reversedAt',
+        'recoveredAt',
+        'updatedAt',
+      ]);
+
+  DateTime? _activityRecordDate(
+    String group,
+    Map<String, dynamic> record,
+  ) {
+    final keys = switch (group) {
+      'عروض السائقين' => const ['offeredAt', 'respondedAt', 'expiresAt'],
+      'سياسات الإلغاء' => const [
+          'approachCheckedAt',
+          'approachStartLocationAt',
+          'initialEtaArrivalAt',
+        ],
+      'أجهزة الإشعارات' => const ['createdAt', 'updatedAt'],
+      'مسارات الموقع' => const ['receivedAt', 'capturedAtMs'],
+      'الموقع الحالي' => const ['capturedAt', 'updatedAt'],
+      _ => const ['createdAt', 'deliveredAt', 'readAt', 'updatedAt'],
+    };
+    return _dateFromRecord(record, keys);
+  }
+
+  Widget _groupedRecords(
+    Map<String, dynamic> groups, {
+    required String period,
+    required DateTimeRange? range,
+    required DateTime? Function(String, Map<String, dynamic>) dateForRecord,
+    required bool keepUndated,
+    required Set<String> selectedCategories,
+  }) {
     final entries = groups.entries
-        .map((entry) => MapEntry(entry.key, _records(entry.value)))
+        .where((entry) =>
+            selectedCategories.isEmpty ||
+            selectedCategories.contains(entry.key))
+        .map((entry) {
+          final records = _records(entry.value).where((record) {
+            if (period == 'all') return true;
+            final date = dateForRecord(entry.key, record);
+            if (date == null) return keepUndated;
+            return range != null &&
+                !date.isBefore(range.start) &&
+                date.isBefore(range.end);
+          }).toList();
+          return MapEntry(entry.key, records);
+        })
         .where((entry) => entry.value.isNotEmpty)
         .toList();
-    if (entries.isEmpty) return _emptyState('لا توجد سجلات مرتبطة');
+    if (entries.isEmpty) return _emptyState('لا توجد سجلات ضمن الفترة المحددة');
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       children: [

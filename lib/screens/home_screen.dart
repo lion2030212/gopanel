@@ -11,6 +11,7 @@ import '../core/driver_marker_presentation.dart';
 import '../core/ride_route_presentation.dart';
 import '../widgets/admin_drawer.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/map_stats_overlay.dart';
 import 'driver_management_screen.dart';
 import 'coupon_management_screen.dart';
 import 'admin_settings_screen.dart';
@@ -559,6 +560,11 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Scaffold(
         key: _scaffoldKey,
         drawer: AdminDrawer(
+          adminId: widget.adminSession.id,
+          adminToken: widget.adminSession.token,
+          username: widget.adminSession.username,
+          fullName: widget.adminSession.fullName,
+          profileImageUrl: widget.adminSession.profileImageUrl,
           selectedDestination: _selectedDestination,
           permissions: widget.adminSession.permissions,
           onDestinationSelected: _selectDestination,
@@ -655,6 +661,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         StaffManagementScreen(
                           adminToken: widget.adminSession.token,
                           currentAdminId: widget.adminSession.id,
+                          canViewConversations:
+                              widget.adminSession.can('support.conversations'),
+                          canViewTickets:
+                              widget.adminSession.can('support.tickets'),
                           onSessionExpired: widget.onLogout,
                         ),
                 },
@@ -681,6 +691,23 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+            if (_selectedDestination == AdminDestination.driverMap)
+              Positioned(
+                top: _mapError == null ? 72 : 140,
+                left: 12,
+                child: SafeArea(
+                  child: MapStatsOverlay(
+                    onlineDrivers: _drivers.values
+                        .where((driver) => driver.isOnline)
+                        .length,
+                    offlineDrivers: _drivers.values
+                        .where((driver) => !driver.isOnline)
+                        .length,
+                    riders: _riders.length,
+                    activeRides: _activeRides.length,
+                  ),
+                ),
+              ),
             if (_selectedDestination == AdminDestination.driverMap &&
                 _mapError != null)
               Positioned(

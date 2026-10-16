@@ -314,154 +314,154 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1280),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text('إدارة الكوبونات',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w700)),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 280,
-                        child: TextField(
-                          controller: _searchController,
-                          onChanged: _searchChanged,
-                          decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.search),
-                            hintText: 'ابحث بالكود أو اسم الراكب',
-                            suffixIcon: _searchController.text.isEmpty
-                                ? null
-                                : IconButton(
-                                    tooltip: 'مسح البحث',
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      _searchChanged('');
-                                    },
-                                    icon: const Icon(Icons.close),
-                                  ),
-                            border: const OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 170,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _period,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'فترة الصلاحية',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          items: _periods.entries
-                              .map((entry) => DropdownMenuItem(
-                                    value: entry.key,
-                                    child: Text(entry.value),
-                                  ))
-                              .toList(),
-                          onChanged: (value) {
-                            if (value != null) unawaited(_selectPeriod(value));
-                          },
-                        ),
-                      ),
-                      SizedBox(
-                        width: 170,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _status,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'حالة الكوبون',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                          items: _statuses.entries
-                              .map((entry) => DropdownMenuItem(
-                                    value: entry.key,
-                                    child: Text(entry.value),
-                                  ))
-                              .toList(),
-                          onChanged: (value) {
-                            if (value == null) return;
-                            setState(() => _status = value);
-                            unawaited(_loadCoupons(reset: true));
-                          },
-                        ),
-                      ),
-                      FilledButton.icon(
-                        onPressed: () => _openForm(),
-                        icon: const Icon(Icons.add),
-                        label: const Text('إضافة كوبون'),
-                      ),
-                    ],
-                  ),
-                ),
-                if (_error != null)
+        child: Padding(
+          padding: const EdgeInsets.only(top: 64),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1280),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                    child: Material(
-                      color: Theme.of(context).colorScheme.errorContainer,
-                      borderRadius: BorderRadius.circular(6),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Text(_error!),
-                      ),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text('إدارة الكوبونات',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700)),
+                        ),
+                      ],
                     ),
                   ),
-                if (_loading) const LinearProgressIndicator(minHeight: 2),
-                Expanded(
-                  child: _coupons.isEmpty && _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _coupons.isEmpty
-                          ? Center(
-                              child: Text(_error ?? 'لا توجد كوبونات مطابقة'),
-                            )
-                          : RefreshIndicator(
-                              onRefresh: () => _loadCoupons(reset: true),
-                              child: ListView.separated(
-                                padding:
-                                    const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                                itemCount: _coupons.length + (_hasMore ? 1 : 0),
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 8),
-                                itemBuilder: (context, index) {
-                                  if (index == _coupons.length) {
-                                    return Center(
-                                      child: TextButton.icon(
-                                        onPressed: _loading
-                                            ? null
-                                            : () => _loadCoupons(reset: false),
-                                        icon: const Icon(Icons.expand_more),
-                                        label: const Text('تحميل المزيد'),
-                                      ),
-                                    );
-                                  }
-                                  return _couponTile(_coupons[index]);
-                                },
-                              ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 280,
+                          child: TextField(
+                            controller: _searchController,
+                            onChanged: _searchChanged,
+                            decoration: InputDecoration(
+                              prefixIcon: const Icon(Icons.search),
+                              hintText: 'ابحث بالكود أو اسم الراكب',
+                              suffixIcon: _searchController.text.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      tooltip: 'مسح البحث',
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        _searchChanged('');
+                                      },
+                                      icon: const Icon(Icons.close),
+                                    ),
+                              border: const OutlineInputBorder(),
+                              isDense: true,
                             ),
-                ),
-              ],
+                          ),
+                        ),
+                        SizedBox(
+                          width: 170,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _period,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'فترة الصلاحية',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: _periods.entries
+                                .map((entry) => DropdownMenuItem(
+                                      value: entry.key,
+                                      child: Text(entry.value),
+                                    ))
+                                .toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                unawaited(_selectPeriod(value));
+                              }
+                            },
+                          ),
+                        ),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SegmentedButton<String>(
+                            segments: _statuses.entries
+                                .map((entry) => ButtonSegment<String>(
+                                      value: entry.key,
+                                      label: Text(entry.value),
+                                    ))
+                                .toList(),
+                            selected: {_status},
+                            onSelectionChanged: (selection) {
+                              setState(() => _status = selection.first);
+                              unawaited(_loadCoupons(reset: true));
+                            },
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: () => _openForm(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('إضافة كوبون'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                      child: Material(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(_error!),
+                        ),
+                      ),
+                    ),
+                  if (_loading) const LinearProgressIndicator(minHeight: 2),
+                  Expanded(
+                    child: _coupons.isEmpty && _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _coupons.isEmpty
+                            ? Center(
+                                child: Text(_error ?? 'لا توجد كوبونات مطابقة'),
+                              )
+                            : RefreshIndicator(
+                                onRefresh: () => _loadCoupons(reset: true),
+                                child: ListView.separated(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                                  itemCount:
+                                      _coupons.length + (_hasMore ? 1 : 0),
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 8),
+                                  itemBuilder: (context, index) {
+                                    if (index == _coupons.length) {
+                                      return Center(
+                                        child: TextButton.icon(
+                                          onPressed: _loading
+                                              ? null
+                                              : () =>
+                                                  _loadCoupons(reset: false),
+                                          icon: const Icon(Icons.expand_more),
+                                          label: const Text('تحميل المزيد'),
+                                        ),
+                                      );
+                                    }
+                                    return _couponTile(_coupons[index]);
+                                  },
+                                ),
+                              ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

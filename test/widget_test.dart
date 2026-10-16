@@ -12,8 +12,10 @@ import 'package:admin_panel/screens/coupon_management_screen.dart';
 import 'package:admin_panel/screens/driver_management_screen.dart';
 import 'package:admin_panel/screens/rider_management_screen.dart';
 import 'package:admin_panel/screens/ride_history_screen.dart';
+import 'package:admin_panel/screens/staff_management_screen.dart';
 import 'package:admin_panel/widgets/admin_drawer.dart';
 import 'package:admin_panel/widgets/dashboard_navigation.dart';
+import 'package:admin_panel/widgets/map_stats_overlay.dart';
 import 'package:admin_panel/widgets/support_history_tab.dart';
 import 'package:admin_panel/screens/support_management_screen.dart';
 import 'package:dio/dio.dart';
@@ -22,6 +24,44 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() {
+  testWidgets('map stats show live counts in a vertical circular stack',
+      (tester) async {
+    var onlineDrivers = 3;
+
+    Widget buildOverlay() => MaterialApp(
+          home: Scaffold(
+            body: MapStatsOverlay(
+              onlineDrivers: onlineDrivers,
+              offlineDrivers: 2,
+              riders: 7,
+              activeRides: 4,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(buildOverlay());
+
+    expect(find.text('3'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('4'), findsOneWidget);
+
+    final labels = [
+      'سائقون أونلاين',
+      'سائقون أوفلاين',
+      'ركاب بالخريطة',
+      'رحلات نشطة',
+    ];
+    final labelTops =
+        labels.map((label) => tester.getTopLeft(find.text(label)).dy).toList();
+    expect(labelTops, orderedEquals([...labelTops]..sort()));
+
+    onlineDrivers = 8;
+    await tester.pumpWidget(buildOverlay());
+    expect(find.text('8'), findsOneWidget);
+    expect(find.text('3'), findsNothing);
+  });
+
   testWidgets('coupon management filters validity and creates a public coupon',
       (tester) async {
     final requests = <RequestOptions>[];
@@ -84,8 +124,13 @@ void main() {
         of: addButtonWrap,
         matching: find.byType(DropdownButtonFormField<String>),
       ),
-      findsNWidgets(2),
+      findsOneWidget,
     );
+    expect(find.byType(SegmentedButton<String>), findsOneWidget);
+
+    await tester.tap(find.text('مستخدم'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['status'], 'used');
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).first);
     await tester.pumpAndSettle();
@@ -260,6 +305,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('أحمد راكب'));
     await tester.pumpAndSettle();
+    expect(find.widgetWithIcon(IconButton, Icons.arrow_back), findsOneWidget);
     expect(find.text('الكوبونات'), findsOneWidget);
     final couponsTab = find.byType(Tab).at(5);
     await tester.ensureVisible(couponsTab);
@@ -890,6 +936,166 @@ void main() {
     expect(find.text('خريطة السائقين'), findsOneWidget);
   });
 
+  testWidgets(
+      'admin headers clear dashboard controls at desktop and phone widths',
+      (tester) async {
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.devicePixelRatio = 1;
+
+    for (final width in [1024.0, 390.0]) {
+      tester.view.physicalSize = Size(width, 844);
+      final navigationKey = GlobalKey<DashboardNavigationState>();
+      final driverClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      driverClient.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) => handler.resolve(Response(
+          requestOptions: options,
+          data: {'drivers': [], 'total': 0},
+        )),
+      ));
+      final riderClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      riderClient.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) => handler.resolve(Response(
+          requestOptions: options,
+          data: {'riders': [], 'total': 0},
+        )),
+      ));
+      final rideClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      rideClient.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) => handler.resolve(Response(
+          requestOptions: options,
+          data: {'rides': [], 'total': 0},
+        )),
+      ));
+      final couponClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      couponClient.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) => handler.resolve(Response(
+          requestOptions: options,
+          data: {'coupons': [], 'total': 0},
+        )),
+      ));
+      final staffClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      staffClient.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) => handler.resolve(Response(
+          requestOptions: options,
+          data: {'staff': [], 'roles': []},
+        )),
+      ));
+
+      await tester.pumpWidget(MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(
+            body: Stack(
+              children: [
+                Positioned.fill(
+                  child: DashboardNavigation(
+                    key: navigationKey,
+                    homeBuilder: (_) => const SizedBox.shrink(),
+                    routes: {
+                      DashboardNavigation.driversRoute: (_) =>
+                          DriverManagementScreen(
+                            adminToken: 'admin-token',
+                            onSessionExpired: fail,
+                            client: driverClient,
+                          ),
+                      DashboardNavigation.ridersRoute: (_) =>
+                          RiderManagementScreen(
+                            adminToken: 'admin-token',
+                            onSessionExpired: fail,
+                            client: riderClient,
+                          ),
+                      DashboardNavigation.rideHistoryRoute: (_) =>
+                          RideHistoryScreen(
+                            adminToken: 'admin-token',
+                            onSessionExpired: fail,
+                            client: rideClient,
+                          ),
+                      DashboardNavigation.couponsRoute: (_) =>
+                          CouponManagementScreen(
+                            adminToken: 'admin-token',
+                            onSessionExpired: fail,
+                            client: couponClient,
+                          ),
+                      DashboardNavigation.staffManagementRoute: (_) =>
+                          StaffManagementScreen(
+                            adminToken: 'admin-token',
+                            currentAdminId: 'admin-1',
+                            onSessionExpired: fail,
+                            client: staffClient,
+                          ),
+                    },
+                    onRouteChanged: (_) {},
+                  ),
+                ),
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: SafeArea(
+                    child: IconButton.filledTonal(
+                      tooltip: 'فتح القائمة',
+                      onPressed: () {},
+                      icon: const Icon(Icons.menu),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ));
+
+      navigationKey.currentState!.pushNamed(DashboardNavigation.driversRoute);
+      await tester.pumpAndSettle();
+
+      final drawerButton = tester.getRect(find.byTooltip('فتح القائمة'));
+      final driverTitle = tester.getRect(find.text('إدارة الكباتن'));
+      expect(driverTitle.top, greaterThanOrEqualTo(drawerButton.bottom));
+
+      final addButton = find.ancestor(
+        of: find.text('إضافة سائق'),
+        matching: find.byType(FilledButton),
+      );
+      final fixedControlBottom = [
+        'إدارة المحادثات',
+        'إدارة الشكاوى',
+        'رجوع',
+      ].map((tooltip) => tester.getRect(find.byTooltip(tooltip)).bottom).reduce(
+            (first, second) => first > second ? first : second,
+          );
+      expect(tester.getRect(addButton).top,
+          greaterThanOrEqualTo(fixedControlBottom));
+
+      await tester.tap(addButton);
+      await tester.pumpAndSettle();
+      expect(find.text('إضافة سائق جديد'), findsOneWidget);
+      await tester.tap(find.text('إلغاء'));
+      await tester.pumpAndSettle();
+
+      navigationKey.currentState!.pushNamed(DashboardNavigation.ridersRoute);
+      await tester.pumpAndSettle();
+      final riderTitle = tester.getRect(find.text('إدارة الركاب'));
+      expect(riderTitle.top, greaterThanOrEqualTo(drawerButton.bottom));
+
+      navigationKey.currentState!
+          .pushNamed(DashboardNavigation.rideHistoryRoute);
+      await tester.pumpAndSettle();
+      final rideHistoryTitle = tester.getRect(find.text('سجل الرحلات'));
+      expect(rideHistoryTitle.top, greaterThanOrEqualTo(drawerButton.bottom));
+
+      navigationKey.currentState!.pushNamed(DashboardNavigation.couponsRoute);
+      await tester.pumpAndSettle();
+      final couponsTitle = tester.getRect(find.text('إدارة الكوبونات'));
+      expect(couponsTitle.top, greaterThanOrEqualTo(drawerButton.bottom));
+
+      navigationKey.currentState!
+          .pushNamed(DashboardNavigation.staffManagementRoute);
+      await tester.pumpAndSettle();
+      final staffTitle = tester.getRect(find.text('إدارة الموظفين'));
+      expect(staffTitle.top, greaterThanOrEqualTo(drawerButton.bottom));
+    }
+  });
+
   testWidgets('admin drawer selects the notification destination',
       (tester) async {
     final scaffoldKey = GlobalKey<ScaffoldState>();
@@ -1037,6 +1243,8 @@ void main() {
 
     scaffoldKey.currentState!.openDrawer();
     await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
     expect(find.text('4'), findsOneWidget);
     await tester.tap(find.text('إدارة المحادثات'));
 
@@ -1062,6 +1270,8 @@ void main() {
     ));
 
     scaffoldKey.currentState!.openDrawer();
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
     await tester.pumpAndSettle();
     expect(find.text('3'), findsOneWidget);
     await tester.tap(find.text('إدارة الشكاوى'));
@@ -1284,6 +1494,11 @@ void main() {
           request.path == '/api/admin/rides/41/cancel'),
       isTrue,
     );
+    await tester.scrollUntilVisible(
+      find.text('سبب الإلغاء'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('سبب الإلغاء'), findsOneWidget);
     expect(find.text('إلغاء الرحلة مجانًا'), findsNothing);
     expect(find.text('إنهاء الرحلة'), findsNothing);
@@ -1481,12 +1696,65 @@ void main() {
                     today.add(const Duration(hours: 12)).toIso8601String(),
               },
             ],
-            'financialRecords': {'shortfalls': [], 'reversals': []},
+            'financialRecords': {
+              'shortfalls': [
+                {
+                  'id': 501,
+                  'amount': '5.00',
+                  'createdAt':
+                      today.add(const Duration(hours: 12)).toIso8601String(),
+                },
+                {
+                  'id': 502,
+                  'amount': '6.00',
+                  'createdAt':
+                      weekDate.add(const Duration(hours: 12)).toIso8601String(),
+                },
+                {
+                  'id': 503,
+                  'amount': '7.00',
+                  'createdAt': previousMonthDate
+                      .add(const Duration(hours: 12))
+                      .toIso8601String(),
+                },
+                {
+                  'id': 504,
+                  'amount': '8.00',
+                  'createdAt': customDate
+                      .add(const Duration(hours: 12))
+                      .toIso8601String(),
+                },
+              ],
+              'reversals': [
+                {
+                  'id': 505,
+                  'amount': '9.00',
+                  'createdAt':
+                      today.add(const Duration(hours: 12)).toIso8601String(),
+                },
+              ],
+            },
             'coupons': {'assigned': [], 'reservations': [], 'redemptions': []},
-            'notifications': [],
+            'notifications': [
+              {
+                'id': 801,
+                'title': 'إشعار هذا الأسبوع',
+                'createdAt':
+                    weekDate.add(const Duration(hours: 12)).toIso8601String(),
+              },
+              {
+                'id': 802,
+                'title': 'إشعار الشهر الماضي',
+                'createdAt': previousMonthDate
+                    .add(const Duration(hours: 12))
+                    .toIso8601String(),
+              },
+            ],
             'offers': [],
             'cancellationPolicies': [],
-            'devices': [],
+            'devices': [
+              {'id': 803, 'role': 'rider'},
+            ],
             'location': null,
             'chatMessages': [
               {
@@ -1597,8 +1865,72 @@ void main() {
     expect(find.text('الرحلة 414'), findsOneWidget);
     expect(find.text('الرحلة 411'), findsNothing);
 
-    expect(find.text('الرحلات'), findsOneWidget);
-    await tester.tap(find.text('الرحلات'));
+    final settlementsTab = find.byType(Tab).at(3);
+    await tester.ensureVisible(settlementsTab);
+    await tester.tap(settlementsTab);
+    await tester.pumpAndSettle();
+    final settlementPeriod = tester.widget<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>).last,
+    );
+    expect(settlementPeriod.initialValue, 'week');
+    expect(find.text('المعرّف: 501'), findsOneWidget);
+    expect(find.text('المعرّف: 502'), findsOneWidget);
+    expect(find.text('المعرّف: 503'), findsNothing);
+    expect(find.text('المعرّف: 504'), findsNothing);
+    expect(find.text('المعرّف: 505'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilterChip, 'عجوزات الرحلات'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 501'), findsOneWidget);
+    expect(find.text('المعرّف: 505'), findsNothing);
+    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 505'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('مدة محددة').last);
+    await tester.pumpAndSettle();
+    final customSettlementDay = find.text('${customDate.day}').first;
+    await tester.tap(customSettlementDay);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('${customDate.day}').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تطبيق'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 504'), findsOneWidget);
+    expect(find.text('المعرّف: 501'), findsNothing);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('كل الفترات'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 501'), findsOneWidget);
+    expect(find.text('المعرّف: 503'), findsOneWidget);
+
+    final activityTab = find.byType(Tab).at(6);
+    await tester.ensureVisible(activityTab);
+    await tester.tap(activityTab);
+    await tester.pumpAndSettle();
+    final activityPeriod = tester.widget<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>).last,
+    );
+    expect(activityPeriod.initialValue, 'week');
+    expect(find.text('المعرّف: 801'), findsOneWidget);
+    expect(find.text('المعرّف: 802'), findsNothing);
+    expect(find.text('المعرّف: 803'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilterChip, 'الإشعارات'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 801'), findsOneWidget);
+    expect(find.text('المعرّف: 803'), findsNothing);
+    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 803'), findsOneWidget);
+
+    final riderRidesTab = find.text('الرحلات');
+    await tester.ensureVisible(riderRidesTab);
+    expect(riderRidesTab, findsOneWidget);
+    await tester.tap(riderRidesTab);
     await tester.pumpAndSettle();
     expect(find.text('الرحلة 41'), findsOneWidget);
     expect(find.text('الرحلة 42'), findsNothing);
@@ -1906,7 +2238,38 @@ void main() {
                     customDate.add(const Duration(hours: 12)).toIso8601String(),
               },
             ],
-            'financialRecords': {'appLedger': [], 'shortfalls': []},
+            'financialRecords': {
+              'appLedger': [
+                {
+                  'id': 901,
+                  'amount': '5.00',
+                  'createdAt':
+                      today.add(const Duration(hours: 12)).toIso8601String(),
+                },
+                {
+                  'id': 903,
+                  'amount': '7.00',
+                  'createdAt': previousMonthDate
+                      .add(const Duration(hours: 12))
+                      .toIso8601String(),
+                },
+                {
+                  'id': 904,
+                  'amount': '8.00',
+                  'createdAt': customDate
+                      .add(const Duration(hours: 12))
+                      .toIso8601String(),
+                },
+              ],
+              'shortfalls': [
+                {
+                  'id': 902,
+                  'amount': '6.00',
+                  'createdAt':
+                      weekDate.add(const Duration(hours: 12)).toIso8601String(),
+                },
+              ],
+            },
             'unavailable': ['vehicleDocuments', 'reports', 'payoutRequests'],
           },
         ));
@@ -1937,6 +2300,7 @@ void main() {
 
     await tester.tap(find.text('محمد علي'));
     await tester.pumpAndSettle();
+    expect(find.widgetWithIcon(IconButton, Icons.arrow_back), findsOneWidget);
     expect(find.text('البيانات الشخصية'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('نعم'), findsOneWidget);
@@ -2105,7 +2469,60 @@ void main() {
     expect(find.textContaining('لا توجد في النظام طلبات سحب معلقة'),
         findsOneWidget);
     expect(find.text('حركات المحفظة'), findsNothing);
-    expect(find.text('رقم 102'), findsNothing);
+    final transactionPeriod = tester.widget<DropdownButtonFormField<String>>(
+      find.byType(DropdownButtonFormField<String>).last,
+    );
+    expect(transactionPeriod.initialValue, 'week');
+    expect(find.text('رقم 901'), findsOneWidget);
+    expect(find.text('رقم 902'), findsOneWidget);
+    expect(find.text('رقم 903'), findsNothing);
+    expect(find.text('رقم 904'), findsNothing);
+
+    await tester
+        .tap(find.widgetWithText(FilterChip, 'دفتر عمولات ورسوم التطبيق'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 901'), findsOneWidget);
+    expect(find.text('رقم 902'), findsNothing);
+    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 902'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('يوم').last);
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 901'), findsOneWidget);
+    expect(find.text('رقم 902'), findsNothing);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('شهر').last);
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 901'), findsOneWidget);
+    expect(find.text('رقم 902'), findsOneWidget);
+    expect(find.text('رقم 903'), findsNothing);
+    expect(find.text('رقم 904'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('مدة محددة').last);
+    await tester.pumpAndSettle();
+    final customTransactionDay = find.text('${customDate.day}').first;
+    await tester.tap(customTransactionDay);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('${customDate.day}').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تطبيق'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 904'), findsOneWidget);
+    expect(find.text('رقم 901'), findsNothing);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('كل الفترات'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 901'), findsOneWidget);
+    expect(find.text('رقم 903'), findsOneWidget);
 
     await tester.ensureVisible(find.text('الشكاوى'));
     await tester.tap(find.text('الشكاوى'));

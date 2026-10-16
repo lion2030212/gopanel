@@ -737,47 +737,54 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   Widget build(BuildContext context) {
     return Directionality(
       textDirection: TextDirection.rtl,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                if (_selectedRideId != null)
-                  IconButton(
-                    tooltip: 'العودة إلى السجل',
-                    onPressed: _submittingAction ? null : _handleDashboardBack,
-                    icon: const Icon(Icons.arrow_forward),
-                  ),
-                Text(
-                  _selectedRideId == null
-                      ? 'سجل الرحلات'
-                      : 'تفاصيل الرحلة #$_selectedRideId',
-                  style: Theme.of(context).textTheme.titleLarge,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 64),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    if (_selectedRideId != null)
+                      IconButton(
+                        tooltip: 'العودة إلى السجل',
+                        onPressed:
+                            _submittingAction ? null : _handleDashboardBack,
+                        icon: const Icon(Icons.arrow_forward),
+                      ),
+                    Text(
+                      _selectedRideId == null
+                          ? 'سجل الرحلات'
+                          : 'تفاصيل الرحلة #$_selectedRideId',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          if (_selectedRideId == null) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: SegmentedButton<String>(
-                segments: _groups.entries
-                    .map((entry) => ButtonSegment<String>(
-                          value: entry.key,
-                          label: Text(entry.value),
-                        ))
-                    .toList(),
-                selected: {_group},
-                onSelectionChanged: (selection) =>
-                    _selectGroup(selection.first),
               ),
-            ),
-            _buildRideFilters(),
-            Expanded(child: _buildRideList()),
-          ] else
-            Expanded(child: _buildDetails()),
-        ],
+              if (_selectedRideId == null) ...[
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: SegmentedButton<String>(
+                    segments: _groups.entries
+                        .map((entry) => ButtonSegment<String>(
+                              value: entry.key,
+                              label: Text(entry.value),
+                            ))
+                        .toList(),
+                    selected: {_group},
+                    onSelectionChanged: (selection) =>
+                        _selectGroup(selection.first),
+                  ),
+                ),
+                _buildRideFilters(),
+                Expanded(child: _buildRideList()),
+              ] else
+                Expanded(child: _buildDetails()),
+            ],
+          ),
+        ),
       ),
     );
   }

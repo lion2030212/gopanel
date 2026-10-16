@@ -6,12 +6,15 @@ import 'package:image_picker/image_picker.dart';
 
 import '../core/admin_config.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/support_history_tab.dart';
 
 class StaffManagementScreen extends StatefulWidget {
   const StaffManagementScreen({
     required this.adminToken,
     required this.onSessionExpired,
     required this.currentAdminId,
+    this.canViewConversations = false,
+    this.canViewTickets = false,
     this.client,
     super.key,
   });
@@ -19,6 +22,8 @@ class StaffManagementScreen extends StatefulWidget {
   final String adminToken;
   final ValueChanged<String> onSessionExpired;
   final String currentAdminId;
+  final bool canViewConversations;
+  final bool canViewTickets;
   final Dio? client;
 
   @override
@@ -371,26 +376,21 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+            child: Row(
               children: [
-                Text('إدارة الموظفين',
-                    style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _roles.isEmpty ? null : () => _openForm(),
-                      icon: const Icon(Icons.person_add_alt_1),
-                      label: const Text('إضافة موظف'),
-                    ),
-                    IconButton(
-                      tooltip: 'تحديث',
-                      onPressed: _loading ? null : _load,
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  ],
+                Expanded(
+                  child: Text('إدارة الموظفين',
+                      style: Theme.of(context).textTheme.titleLarge),
+                ),
+                FilledButton.icon(
+                  onPressed: _roles.isEmpty ? null : () => _openForm(),
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('إضافة موظف'),
+                ),
+                IconButton(
+                  tooltip: 'تحديث',
+                  onPressed: _loading ? null : _load,
+                  icon: const Icon(Icons.refresh),
                 ),
               ],
             ),
@@ -537,10 +537,100 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     final canEdit = _canEditStaff(staff);
     final imageUrl = staff['profileImageUrl'];
     final name = staff['fullName']?.toString().trim();
+    final staffId = int.parse(staff['id'].toString());
+    final tabs = <Tab>[
+      const Tab(text: 'تسجيل الدخول'),
+      const Tab(text: 'البيانات الشخصية'),
+      const Tab(text: 'التقييمات'),
+    ];
+    final tabViews = <Widget>[
+      ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          _staffInformation('اسم المستخدم', staff['username']),
+          _staffInformation('الرتبة الوظيفية', _roleName(staff)),
+          _staffInformation('حالة الحساب', active ? 'نشط' : 'معطّل'),
+          _staffInformation('تاريخ الإنشاء', staff['createdAt']),
+        ],
+      ),
+      ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Center(
+            child: CircleAvatar(
+              radius: 48,
+              backgroundImage: _staffImageProvider(imageUrl),
+              child: _staffImageProvider(imageUrl) == null
+                  ? const Icon(Icons.person_outline, size: 48)
+                  : null,
+            ),
+          ),
+          if (canEdit) ...[
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FilledButton.icon(
+                  onPressed: _uploadingPhoto ? null : _pickAndUploadPhoto,
+                  icon: _uploadingPhoto
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.photo_outlined),
+                  label:
+                      Text(imageUrl == null ? 'إضافة صورة' : 'استبدال الصورة'),
+                ),
+                if (imageUrl != null) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'حذف الصورة',
+                    onPressed: _uploadingPhoto ? null : _removeStaffPhoto,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ],
+            ),
+          ],
+          const SizedBox(height: 12),
+          _staffInformation('الاسم الكامل', staff['fullName']),
+          _staffInformation('رقم الهاتف', staff['phone']),
+          _staffInformation('البريد الإلكتروني', staff['email']),
+          _staffInformation('المسمى الوظيفي', staff['jobTitle']),
+        ],
+      ),
+      _StaffRatingsTab(
+        staffId: staffId,
+        client: _dio,
+        adminToken: widget.adminToken,
+        onSessionExpired: widget.onSessionExpired,
+      ),
+    ];
+    if (widget.canViewConversations) {
+      tabs.add(const Tab(text: 'المحادثات'));
+      tabViews.add(SupportHistoryTab(
+        client: _dio,
+        adminToken: widget.adminToken,
+        adminId: 'staff-$staffId',
+        ticketsMode: false,
+        onSessionExpired: widget.onSessionExpired,
+      ));
+    }
+    if (widget.canViewTickets) {
+      tabs.add(const Tab(text: 'الشكاوى'));
+      tabViews.add(SupportHistoryTab(
+        client: _dio,
+        adminToken: widget.adminToken,
+        adminId: 'staff-$staffId',
+        ticketsMode: true,
+        onSessionExpired: widget.onSessionExpired,
+      ));
+    }
     return Directionality(
       textDirection: TextDirection.rtl,
       child: DefaultTabController(
-        length: 2,
+        length: tabs.length,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -551,7 +641,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   IconButton(
                     tooltip: 'العودة للقائمة',
                     onPressed: _handleDashboardBack,
-                    icon: const Icon(Icons.arrow_forward),
+                    icon: const Icon(Icons.arrow_back),
                   ),
                   CircleAvatar(
                     backgroundImage: _staffImageProvider(imageUrl),
@@ -596,95 +686,22 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                           ? Icons.block_outlined
                           : Icons.check_circle_outline),
                     ),
-                ],
-              ),
-            ),
-              if (canEdit)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: IconButton(
+                  if (canEdit)
+                    IconButton(
                       tooltip: 'تعديل البيانات',
                       onPressed: () => unawaited(_openForm(staff: staff)),
                       icon: const Icon(Icons.edit_outlined),
                     ),
-                  ),
-                ),
-            const TabBar(
+                ],
+              ),
+            ),
+            TabBar(
               isScrollable: true,
-              tabs: [
-                Tab(text: 'تسجيل الدخول'),
-                Tab(text: 'البيانات الشخصية'),
-              ],
+              tabs: tabs,
             ),
             Expanded(
               child: TabBarView(
-                children: [
-                  ListView(
-                    padding: const EdgeInsets.all(20),
-                    children: [
-                      _staffInformation('اسم المستخدم', staff['username']),
-                      _staffInformation('الرتبة الوظيفية', _roleName(staff)),
-                      _staffInformation(
-                        'حالة الحساب',
-                        active ? 'نشط' : 'معطّل',
-                      ),
-                      _staffInformation('تاريخ الإنشاء', staff['createdAt']),
-                    ],
-                  ),
-                  ListView(
-                    padding: const EdgeInsets.all(20),
-                    children: [
-                      Center(
-                        child: CircleAvatar(
-                          radius: 48,
-                          backgroundImage: _staffImageProvider(imageUrl),
-                          child: _staffImageProvider(imageUrl) == null
-                              ? const Icon(Icons.person_outline, size: 48)
-                              : null,
-                        ),
-                      ),
-                      if (canEdit) ...[
-                        const SizedBox(height: 12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            FilledButton.icon(
-                              onPressed:
-                                  _uploadingPhoto ? null : _pickAndUploadPhoto,
-                              icon: _uploadingPhoto
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
-                                    )
-                                  : const Icon(Icons.photo_outlined),
-                              label: Text(imageUrl == null
-                                  ? 'إضافة صورة'
-                                  : 'استبدال الصورة'),
-                            ),
-                            if (imageUrl != null) ...[
-                              const SizedBox(width: 8),
-                              IconButton(
-                                tooltip: 'حذف الصورة',
-                                onPressed:
-                                    _uploadingPhoto ? null : _removeStaffPhoto,
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      _staffInformation('الاسم الكامل', staff['fullName']),
-                      _staffInformation('رقم الهاتف', staff['phone']),
-                      _staffInformation('البريد الإلكتروني', staff['email']),
-                      _staffInformation('المسمى الوظيفي', staff['jobTitle']),
-                    ],
-                  ),
-                ],
+                children: tabViews,
               ),
             ),
           ],
@@ -696,7 +713,213 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   @override
   Widget build(BuildContext context) {
     final staff = _selectedStaff;
-    return staff == null ? _buildStaffList() : _buildStaffProfile(staff);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 64),
+        child: staff == null ? _buildStaffList() : _buildStaffProfile(staff),
+      ),
+    );
+  }
+}
+
+class _StaffRatingsTab extends StatefulWidget {
+  const _StaffRatingsTab({
+    required this.staffId,
+    required this.client,
+    required this.adminToken,
+    required this.onSessionExpired,
+  });
+
+  final int staffId;
+  final Dio client;
+  final String adminToken;
+  final ValueChanged<String> onSessionExpired;
+
+  @override
+  State<_StaffRatingsTab> createState() => _StaffRatingsTabState();
+}
+
+class _StaffRatingsTabState extends State<_StaffRatingsTab> {
+  List<Map<String, dynamic>> _ratings = [];
+  bool _generalAdmin = false;
+  bool _loading = true;
+  String? _error;
+  String _period = 'month';
+  double _averageRating = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void didUpdateWidget(covariant _StaffRatingsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.staffId != widget.staffId && !_generalAdmin) {
+      unawaited(_load());
+    }
+  }
+
+  Future<void> _load() async {
+    final generalAdmin = _generalAdmin;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final path = generalAdmin
+          ? '/api/admin/staff/ratings/general'
+          : '/api/admin/staff/${widget.staffId}/ratings';
+      final response = await widget.client.get<Map<String, dynamic>>(
+        path,
+        options: Options(
+          headers: {'Authorization': 'Bearer ${widget.adminToken}'},
+        ),
+      );
+      if (!mounted || generalAdmin != _generalAdmin) return;
+      final data = response.data ?? const {};
+      setState(() {
+        _ratings = data['ratings'] is List
+            ? (data['ratings'] as List)
+                .whereType<Map>()
+                .map(Map<String, dynamic>.from)
+                .toList()
+            : <Map<String, dynamic>>[];
+        _averageRating =
+            double.tryParse(data['averageRating']?.toString() ?? '') ?? 0;
+        _loading = false;
+      });
+    } on DioException catch (error) {
+      if (!mounted || generalAdmin != _generalAdmin) return;
+      if (error.response?.statusCode == 401) {
+        widget.onSessionExpired('جلسة الإدارة غير صالحة');
+      } else {
+        setState(() {
+          _error = 'تعذر تحميل التقييمات';
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  DateTime? _date(Object? value) {
+    final text = value?.toString();
+    if (text == null) return null;
+    return DateTime.tryParse(
+        text.contains(' ') ? text.replaceFirst(' ', 'T') : text);
+  }
+
+  List<Map<String, dynamic>> get _visibleRatings {
+    final now = DateTime.now();
+    final cutoff = switch (_period) {
+      'week' => now.subtract(const Duration(days: 7)),
+      'month' => now.subtract(const Duration(days: 30)),
+      _ => null,
+    };
+    if (cutoff == null) return _ratings;
+    return _ratings.where((rating) {
+      final date = _date(rating['createdAt']);
+      return date != null && !date.isBefore(cutoff);
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('الموظف')),
+              ButtonSegment(value: true, label: Text('الإدارة العامة')),
+            ],
+            selected: {_generalAdmin},
+            onSelectionChanged: (selection) {
+              setState(() => _generalAdmin = selection.first);
+              unawaited(_load());
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: DropdownButtonFormField<String>(
+            initialValue: _period,
+            decoration: const InputDecoration(labelText: 'فترة التقييمات'),
+            items: const [
+              DropdownMenuItem(value: 'week', child: Text('أسبوع')),
+              DropdownMenuItem(value: 'month', child: Text('شهر')),
+              DropdownMenuItem(value: 'all', child: Text('كل الفترات')),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _period = value);
+            },
+          ),
+        ),
+        if (_loading)
+          const Expanded(child: Center(child: CircularProgressIndicator()))
+        else if (_error != null)
+          Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_error!),
+                  TextButton(
+                      onPressed: _load, child: const Text('إعادة المحاولة')),
+                ],
+              ),
+            ),
+          )
+        else ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              'المتوسط ${_averageRating.toStringAsFixed(1)} من 5 · ${_ratings.length} تقييمات',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          Expanded(
+            child: _visibleRatings.isEmpty
+                ? const Center(
+                    child: Text('لا توجد تقييمات ضمن الفترة المحددة'))
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _visibleRatings.length,
+                    itemBuilder: (context, index) {
+                      final rating = _visibleRatings[index];
+                      final stars =
+                          int.tryParse(rating['stars'].toString()) ?? 0;
+                      final interaction = rating['interactionType'] == 'ticket'
+                          ? 'شكوى'
+                          : 'محادثة';
+                      final raterRole =
+                          rating['raterRole'] == 'driver' ? 'سائق' : 'راكب';
+                      return ListTile(
+                        leading: Icon(Icons.star, color: Colors.amber.shade700),
+                        title: Text(
+                            '${rating['raterName'] ?? raterRole} · $stars/5'),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                                '$raterRole · $interaction #${rating['interactionId']} · ${rating['createdAt'] ?? ''}'),
+                            if (rating['comment']?.toString().isNotEmpty ==
+                                true)
+                              Text(rating['comment'].toString()),
+                          ],
+                        ),
+                        isThreeLine:
+                            rating['comment']?.toString().isNotEmpty == true,
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ],
+    );
   }
 }
 

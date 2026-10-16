@@ -43,6 +43,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   DateTimeRange? _rideHistoryCustomRange;
   String _walletPeriod = 'day';
   DateTimeRange? _walletCustomRange;
+  String _transactionsPeriod = 'week';
+  DateTimeRange? _transactionsCustomRange;
+  final Set<String> _transactionCategories = {};
   String _ratingsPeriod = 'week';
   DateTimeRange? _ratingsCustomRange;
   DashboardBackHandler? _dashboardBackHandler;
@@ -358,6 +361,75 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     return DateTime.tryParse(value)?.toLocal();
   }
 
+  Future<void> _selectTransactionsPeriod(String period) async {
+    if (period == 'custom') {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final selectedRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(1900),
+        lastDate: DateTime(2100),
+        initialDateRange:
+            _transactionsCustomRange ?? DateTimeRange(start: today, end: today),
+        helpText: 'اختر مدة المعاملات والتحويلات',
+        cancelText: 'إلغاء',
+        confirmText: 'تطبيق',
+        saveText: 'تطبيق',
+      );
+      if (!mounted || selectedRange == null) return;
+      setState(() {
+        _transactionsPeriod = period;
+        _transactionsCustomRange = selectedRange;
+      });
+      return;
+    }
+    setState(() => _transactionsPeriod = period);
+  }
+
+  DateTimeRange? _transactionsRange() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (_transactionsPeriod) {
+      case 'day':
+        return DateTimeRange(
+            start: today, end: today.add(const Duration(days: 1)));
+      case 'week':
+        final daysSinceSaturday = (now.weekday + 1) % 7;
+        final weekStart = today.subtract(Duration(days: daysSinceSaturday));
+        return DateTimeRange(
+            start: weekStart, end: weekStart.add(const Duration(days: 7)));
+      case 'month':
+        return DateTimeRange(
+            start: DateTime(now.year, now.month),
+            end: DateTime(now.year, now.month + 1));
+      case 'custom':
+        final customRange = _transactionsCustomRange;
+        if (customRange == null) return null;
+        final start = DateTime(customRange.start.year, customRange.start.month,
+            customRange.start.day);
+        final end = DateTime(customRange.end.year, customRange.end.month,
+                customRange.end.day)
+            .add(const Duration(days: 1));
+        return DateTimeRange(start: start, end: end);
+      default:
+        return null;
+    }
+  }
+
+  DateTime? _financialRecordDate(Map<String, dynamic> record) {
+    for (final key in const [
+      'createdAt',
+      'settledAt',
+      'reversedAt',
+      'recoveredAt',
+      'updatedAt',
+    ]) {
+      final date = _walletTransactionDate(record[key]);
+      if (date != null) return date;
+    }
+    return null;
+  }
+
   Future<void> _selectRatingsPeriod(String period) async {
     if (period == 'custom') {
       final now = DateTime.now();
@@ -533,12 +605,15 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1280),
-            child: _details == null && !_loadingDetails
-                ? _buildDriverList()
-                : _buildDriverProfile(),
+        child: Padding(
+          padding: const EdgeInsets.only(top: 64),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1280),
+              child: _details == null && !_loadingDetails
+                  ? _buildDriverList()
+                  : _buildDriverProfile(),
+            ),
           ),
         ),
       ),
@@ -743,7 +818,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                 IconButton(
                     tooltip: 'العودة للقائمة',
                     onPressed: _handleDashboardBack,
-                    icon: const Icon(Icons.arrow_forward)),
+                    icon: const Icon(Icons.arrow_back)),
                 Expanded(
                   child: Text(
                     profile['fullName']?.toString().trim().isNotEmpty == true
@@ -1001,6 +1076,29 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       'cancellationFees': 'تسويات رسوم الإلغاء',
       'cancellationFeeRecoveries': 'تحصيل رسوم الإلغاء',
     };
+    final range = _transactionsRange();
+    final visibleSections = financialRecords.entries
+        .map((entry) {
+          final records = entry.value is List
+              ? (entry.value as List)
+                  .whereType<Map>()
+                  .map((record) => Map<String, dynamic>.from(record))
+                  .where((record) {
+                  if (_transactionsPeriod == 'all') return true;
+                  final date = _financialRecordDate(record);
+                  return date != null &&
+                      range != null &&
+                      !date.isBefore(range.start) &&
+                      date.isBefore(range.end);
+                }).toList()
+              : <Map<String, dynamic>>[];
+          return MapEntry(entry.key, records);
+        })
+        .where((entry) =>
+            (_transactionCategories.isEmpty ||
+                _transactionCategories.contains(entry.key)) &&
+            entry.value.isNotEmpty)
+        .toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
       children: [
@@ -1010,14 +1108,64 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
           subtitle:
               Text('لا توجد في النظام طلبات سحب معلقة أو إجراءات قبول ورفض.'),
         ),
-        for (final entry in financialRecords.entries)
-          if (entry.value is List && (entry.value as List).isNotEmpty) ...[
-            const Divider(height: 28),
-            Text(sectionLabels[entry.key] ?? entry.key,
-                style: Theme.of(context).textTheme.titleMedium),
-            ...(entry.value as List).whereType<Map>().map(
-                (record) => _recordTile(Map<String, dynamic>.from(record))),
+        DropdownButtonFormField<String>(
+          initialValue: _transactionsPeriod,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'فترة المعاملات'),
+          items: const [
+            DropdownMenuItem(value: 'day', child: Text('يوم')),
+            DropdownMenuItem(value: 'week', child: Text('أسبوع')),
+            DropdownMenuItem(value: 'month', child: Text('شهر')),
+            DropdownMenuItem(value: 'custom', child: Text('مدة محددة')),
+            DropdownMenuItem(value: 'all', child: Text('كل الفترات')),
           ],
+          onChanged: (period) {
+            if (period != null) unawaited(_selectTransactionsPeriod(period));
+          },
+        ),
+        if (_transactionsPeriod == 'custom' && _transactionsCustomRange != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${intl.DateFormat('y/MM/dd').format(_transactionsCustomRange!.start)}'
+              ' - ${intl.DateFormat('y/MM/dd').format(_transactionsCustomRange!.end)}',
+            ),
+          ),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              FilterChip(
+                label: const Text('كل التصنيفات'),
+                selected: _transactionCategories.isEmpty,
+                onSelected: (_) =>
+                    setState(() => _transactionCategories.clear()),
+              ),
+              for (final entry in sectionLabels.entries) ...[
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: Text(entry.value),
+                  selected: _transactionCategories.contains(entry.key),
+                  onSelected: (selected) => setState(() {
+                    if (selected) {
+                      _transactionCategories.add(entry.key);
+                    } else {
+                      _transactionCategories.remove(entry.key);
+                    }
+                  }),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (visibleSections.isEmpty)
+          const ListTile(title: Text('لا توجد معاملات ضمن الفترة المحددة')),
+        for (final entry in visibleSections) ...[
+          const Divider(height: 28),
+          Text(sectionLabels[entry.key] ?? entry.key,
+              style: Theme.of(context).textTheme.titleMedium),
+          ...entry.value.map(_recordTile),
+        ],
       ],
     );
   }

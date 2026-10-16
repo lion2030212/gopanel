@@ -3,6 +3,8 @@ class AdminSession {
     required this.token,
     required this.id,
     required this.username,
+    this.fullName,
+    this.profileImageUrl,
     required this.role,
     required this.permissions,
   });
@@ -26,6 +28,8 @@ class AdminSession {
   final String token;
   final String id;
   final String username;
+  final String? fullName;
+  final String? profileImageUrl;
   final String role;
   final Set<String> permissions;
 
@@ -50,6 +54,8 @@ class AdminSession {
       token: token,
       id: admin['id']?.toString() ?? '',
       username: admin['username']?.toString() ?? '',
+      fullName: admin['fullName']?.toString(),
+      profileImageUrl: admin['profileImageUrl']?.toString(),
       role: role,
       permissions:
           rawPermissions.map((permission) => permission.toString()).toSet(),
