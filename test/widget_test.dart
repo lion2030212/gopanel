@@ -2560,12 +2560,35 @@ void main() {
       (tester) async {
     final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
     RequestOptions? sentRequest;
+    RequestOptions? searchRequest;
     client.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
+        if (options.method == 'GET') {
+          searchRequest = options;
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {
+              'success': true,
+              'recipients': [
+                {
+                  'userId': 9,
+                  'fullName': 'أحمد راكب',
+                  'phone': '+201000000000',
+                  'role': 'rider',
+                },
+              ],
+            },
+          ));
+          return;
+        }
         sentRequest = options;
         handler.resolve(Response(
           requestOptions: options,
-          data: {'recipients': 1, 'delivered': 1},
+          data: {
+            'recipients': 1,
+            'savedRecipients': 1,
+            'delivered': 1,
+          },
         ));
       },
     ));
@@ -2586,9 +2609,22 @@ void main() {
     await tester.tap(find.text('مستخدم محدد').last);
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField).at(0), '+201000000000');
+    expect(find.text('+2010'), findsNothing);
+    await tester.enterText(find.byType(TextField).at(0), '010');
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+    expect(searchRequest?.path, '/api/admin/notifications/recipients');
+    expect(searchRequest?.queryParameters, {
+      'role': 'rider',
+      'phonePrefix': '010',
+    });
+    await tester.tap(find.text('أحمد راكب'));
+    await tester.pumpAndSettle();
+
     await tester.enterText(find.byType(TextField).at(1), 'عنوان تجريبي');
     await tester.enterText(find.byType(TextField).at(2), 'نص تجريبي');
+    await tester.drag(find.byType(ListView).first, const Offset(0, -400));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('إرسال التنبيه'));
     await tester.pumpAndSettle();
 
@@ -2600,12 +2636,155 @@ void main() {
       'body': 'نص تجريبي',
       'audience': 'user',
       'role': 'rider',
-      'phone': '+201000000000',
+      'phones': ['+201000000000'],
     });
     await tester.drag(find.byType(ListView), const Offset(0, -700));
     await tester.pumpAndSettle();
-    expect(find.text('تم حفظ التنبيه لـ 1 مستلم، وأُرسل إلى 1 جهاز'),
-        findsOneWidget);
+    expect(
+      find.text('تم حفظ التنبيه لـ 1 من 1 مستلم، وأُرسل إلى 1 جهاز'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('notification composer sends pasted phone numbers together',
+      (tester) async {
+    final requests = <RequestOptions>[];
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        requests.add(options);
+        handler.resolve(Response(
+          requestOptions: options,
+          data: {
+            'recipients': 2,
+            'savedRecipients': 2,
+            'delivered': 2,
+          },
+        ));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NotificationScreen(
+          adminToken: 'admin-token',
+          onSessionExpired: (message) => fail(message),
+          client: client,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('مستخدم محدد').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextField).at(0),
+      '+201000000001, +201000000002',
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).at(1), 'عنوان');
+    await tester.enterText(find.byType(TextField).at(2), 'نص');
+    await tester.drag(find.byType(ListView).first, const Offset(0, -400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إرسال التنبيه'));
+    await tester.pumpAndSettle();
+
+    expect(requests.single.data['phones'], [
+      '+201000000001',
+      '+201000000002',
+    ]);
+  });
+
+  testWidgets('notification composer explains missing devices and keeps text',
+      (tester) async {
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        handler.resolve(Response(
+          requestOptions: options,
+          data: {
+            'recipients': 1,
+            'savedRecipients': 0,
+            'recipientsWithoutDevices': 1,
+            'recipientsFailed': 0,
+            'recipientsWithFailures': 0,
+            'delivered': 0,
+            'failedDevices': 0,
+          },
+        ));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NotificationScreen(
+          adminToken: 'admin-token',
+          onSessionExpired: (message) => fail(message),
+          client: client,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(0), 'عنوان تجريبي');
+    await tester.enterText(find.byType(TextField).at(1), 'نص تجريبي');
+    await tester.tap(find.text('إرسال التنبيه'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('لم يصل التنبيه لأي جهاز، لذلك لم يُحفظ. بلا جهاز مسجل: 1'),
+      findsOneWidget,
+    );
+    expect(
+        tester.widget<TextField>(find.byType(TextField).at(0)).controller?.text,
+        'عنوان تجريبي');
+    expect(
+        tester.widget<TextField>(find.byType(TextField).at(1)).controller?.text,
+        'نص تجريبي');
+  });
+
+  testWidgets('notification composer shows FCM errors when delivery fails',
+      (tester) async {
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        handler.resolve(Response(
+          requestOptions: options,
+          data: {
+            'recipients': 1,
+            'savedRecipients': 0,
+            'recipientsWithoutDevices': 0,
+            'recipientsFailed': 1,
+            'recipientsWithFailures': 1,
+            'delivered': 0,
+            'failedDevices': 1,
+            'failureCodes': {'messaging/invalid-credential': 1},
+          },
+        ));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: NotificationScreen(
+          adminToken: 'admin-token',
+          onSessionExpired: (message) => fail(message),
+          client: client,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(1), 'نص تجريبي');
+    await tester.tap(find.text('إرسال التنبيه'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('messaging/invalid-credential (1)'),
+      findsOneWidget,
+    );
   });
 }
 
