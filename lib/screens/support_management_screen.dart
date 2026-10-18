@@ -39,7 +39,9 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
   final List<Map<String, dynamic>> _items = [];
   Timer? _searchTimer;
+  Timer? _socketRefreshTimer;
   socket_io_client.Socket? _socket;
+  int? _socketDetailRefreshId;
   Map<String, dynamic>? _selectedItem;
   Map<String, dynamic>? _detail;
   List<Map<String, dynamic>> _messages = [];
@@ -49,6 +51,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   bool _loadingDetail = false;
   bool _sending = false;
   bool _updatingStatus = false;
+  int _detailRequestId = 0;
 
   Options get _auth => Options(
         headers: {'Authorization': 'Bearer ${widget.adminToken}'},
@@ -58,6 +61,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
 
   void showList() {
     if (!mounted) return;
+    _detailRequestId++;
     setState(() {
       _selectedItem = null;
       _detail = null;
@@ -78,6 +82,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   @override
   void dispose() {
     _searchTimer?.cancel();
+    _socketRefreshTimer?.cancel();
     _socket?.dispose();
     _replyController.dispose();
     _searchController.dispose();
@@ -160,39 +165,66 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         {widget.ticketsMode ? 'ticketId' : 'conversationId': id},
       );
     });
-    socket.on('support:conversation:message', (_) {
-      if (!widget.ticketsMode) unawaited(_refreshSelectedAndList());
+    socket.on('support:conversation:message', (payload) {
+      if (!widget.ticketsMode) {
+        _scheduleSocketRefresh(payload, refreshDetail: true);
+      }
     });
-    socket.on('support:conversations:changed', (_) {
-      if (!widget.ticketsMode) unawaited(_refreshSelectedAndList());
+    socket.on('support:conversations:changed', (payload) {
+      if (!widget.ticketsMode) _scheduleSocketRefresh(payload);
     });
-    socket.on('support:tickets:changed', (_) {
-      if (widget.ticketsMode) unawaited(_refreshSelectedAndList());
+    socket.on('support:tickets:changed', (payload) {
+      if (widget.ticketsMode)
+        _scheduleSocketRefresh(payload, refreshDetail: true);
     });
     socket.connect();
   }
 
-  Future<void> _refreshSelectedAndList() async {
+  void _scheduleSocketRefresh(dynamic payload, {bool refreshDetail = false}) {
+    final eventId = payload is Map
+        ? _id(payload[widget.ticketsMode ? 'ticketId' : 'conversationId'])
+        : null;
+    final selectedId = _id(_selectedItem?['id']);
+    if (refreshDetail && eventId != null && eventId == selectedId) {
+      _socketDetailRefreshId = eventId;
+    }
+    _socketRefreshTimer?.cancel();
+    _socketRefreshTimer = Timer(const Duration(milliseconds: 120), () {
+      final refreshDetailForId = _socketDetailRefreshId;
+      _socketDetailRefreshId = null;
+      unawaited(
+        _refreshSelectedAndList(refreshDetailForId: refreshDetailForId),
+      );
+    });
+  }
+
+  Future<void> _refreshSelectedAndList({int? refreshDetailForId}) async {
     await _loadItems();
     final id = _id(_selectedItem?['id']);
-    if (id != null) await _loadDetail(id);
+    if (id != null && id == refreshDetailForId) await _loadDetail(id);
   }
 
   Future<void> _selectItem(Map<String, dynamic> item) async {
     final id = _id(item['id']);
     if (id == null) return;
+    final requestId = ++_detailRequestId;
     _socket?.emit(
       widget.ticketsMode ? 'support:ticket:join' : 'support:conversation:join',
       {widget.ticketsMode ? 'ticketId' : 'conversationId': id},
     );
     setState(() {
       _selectedItem = item;
+      _detail = null;
+      _messages = [];
       _loadingDetail = true;
+      _replyController.clear();
     });
-    await _loadDetail(id);
+    await _loadDetail(id, requestId: requestId);
   }
 
-  Future<void> _loadDetail(int id) async {
+  Future<void> _loadDetail(int id, {int? requestId}) async {
+    if (_id(_selectedItem?['id']) != id) return;
+    final activeRequestId = requestId ?? ++_detailRequestId;
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/admin/support/$_detailPath/$id',
@@ -203,7 +235,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
           .whereType<Map>()
           .map((message) => Map<String, dynamic>.from(message))
           .toList();
-      if (!mounted) return;
+      if (!_isCurrentDetailRequest(id, activeRequestId)) return;
       setState(() {
         final detail = data[widget.ticketsMode ? 'ticket' : 'conversation'];
         _detail = detail is Map ? Map<String, dynamic>.from(detail) : null;
@@ -212,17 +244,28 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
       });
       if (widget.ticketsMode) widget.onTicketRead?.call();
     } on DioException catch (error) {
+      if (!_isCurrentDetailRequest(id, activeRequestId)) return;
       if (error.response?.statusCode == 401) {
+        setState(() => _loadingDetail = false);
         widget.onSessionExpired('جلسة الإدارة غير صالحة');
-      } else if (mounted) {
+      } else {
+        setState(() => _loadingDetail = false);
+      }
+    } catch (_) {
+      if (_isCurrentDetailRequest(id, activeRequestId)) {
         setState(() => _loadingDetail = false);
       }
     }
   }
 
-  Future<void> _sendReply() async {
+  bool _isCurrentDetailRequest(int id, int requestId) =>
+      mounted &&
+      requestId == _detailRequestId &&
+      _id(_selectedItem?['id']) == id;
+
+  Future<void> _sendReply({String? message}) async {
     final id = _id(_selectedItem?['id']);
-    final body = _replyController.text.trim();
+    final body = (message ?? _replyController.text).trim();
     if (id == null || body.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
@@ -231,7 +274,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         data: {'message': body},
         options: _auth,
       );
-      _replyController.clear();
+      if (message == null) _replyController.clear();
       await _loadDetail(id);
       await _loadItems();
     } on DioException catch (error) {
@@ -284,11 +327,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         options: _auth,
       );
       if (!mounted) return;
-      setState(() {
-        _selectedItem = null;
-        _detail = null;
-        _messages = [];
-      });
+      if (_id(_selectedItem?['id']) == id) showList();
       await _loadItems();
     } on DioException {
       if (mounted) {
@@ -307,6 +346,86 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   String _roleLabel(String? role) => role == 'driver' ? 'سائق' : 'راكب';
 
   String _ticketStatus(String? value) => _ticketStatuses[value] ?? 'غير معروفة';
+
+  String _rideStatusLabel(String? status) => switch (status) {
+        'requested' => 'بانتظار السائق',
+        'accepted' => 'تم قبولها',
+        'arriving' => 'السائق في الطريق',
+        'in_progress' => 'جارية',
+        _ => 'مرحلة غير معروفة',
+      };
+
+  bool _hasActiveRide(Map<String, dynamic> item) =>
+      _id(item['rideId']) != null &&
+      const {'requested', 'accepted', 'arriving', 'in_progress'}
+          .contains(item['rideStatus']?.toString());
+
+  Widget _buildRideSummary(Map<String, dynamic> item) {
+    final hasRide = _hasActiveRide(item);
+    final rideId = _id(item['rideId']);
+    return Text(
+      hasRide
+          ? 'رحلة نشطة #$rideId · ${_rideStatusLabel(item['rideStatus']?.toString())}'
+          : 'لا توجد رحلة نشطة',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: hasRide ? Colors.green.shade700 : null,
+        fontWeight: hasRide ? FontWeight.w600 : FontWeight.normal,
+        fontSize: 12,
+      ),
+    );
+  }
+
+  Widget _buildConversationRideStatus(Map<String, dynamic> item) {
+    final hasRide = _hasActiveRide(item);
+    final rideId = _id(item['rideId']);
+    final color = hasRide ? Colors.green.shade700 : Colors.grey.shade700;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: hasRide ? Colors.green.shade50 : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasRide ? Icons.directions_car : Icons.directions_car_outlined,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hasRide
+                  ? 'رحلة نشطة #$rideId · ${_rideStatusLabel(item['rideStatus']?.toString())}'
+                  : 'لا توجد رحلة نشطة',
+              style: TextStyle(
+                color: color,
+                fontWeight: hasRide ? FontWeight.w700 : FontWeight.normal,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _quickReplies() {
+    final fullName = _detail?['customerName']?.toString().trim() ?? '';
+    final firstName =
+        fullName.isEmpty ? 'عميل' : fullName.split(RegExp(r'\s+')).first;
+    return [
+      'وعليكم السلام ورحمة الله وبركاته',
+      'مرحبًا $firstName، كيف يمكنني مساعدتك اليوم؟',
+      'هل ما زلت موجودًا معي؟',
+      'فضلًا الانتظار للمراجعة',
+      'سوف يتم إغلاق المحادثة نظرًا لعدم الرد',
+      'هل هناك شيء آخر يمكنني مساعدتك فيه؟',
+      'شكرًا لاستخدامك خدمة GoFast',
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -424,16 +543,25 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         : (item['customerName']?.toString().trim().isNotEmpty == true
             ? item['customerName'].toString()
             : '$role #${item['userId']}');
-    final subtitle = widget.ticketsMode
-        ? '${_categoryLabel(item['category']?.toString())} · ${_ticketStatus(item['status']?.toString())}'
-        : '$role · ${item['customerPhone'] ?? ''}';
+    final subtitle =
+        '${_categoryLabel(item['category']?.toString())} · ${_ticketStatus(item['status']?.toString())}';
     final unread = _id(item['unreadCount']) ?? 0;
     return ListTile(
       selected: isSelected,
       tileColor: isDriverOrigin ? Colors.yellow.shade100 : null,
       selectedTileColor: isDriverOrigin ? Colors.yellow.shade200 : null,
       title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: widget.ticketsMode
+          ? Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis)
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('$role · ${item['customerPhone'] ?? ''}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                _buildRideSummary(item),
+              ],
+            ),
       trailing: widget.ticketsMode
           ? item['rideId'] == null
               ? null
@@ -467,14 +595,16 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
               if (showBack)
                 IconButton(
                   tooltip: 'العودة إلى القائمة',
-                  onPressed: () => setState(() => _selectedItem = null),
+                  onPressed: showList,
                   icon: const Icon(Icons.arrow_forward),
                 ),
               Expanded(
                 child: Text(
                   widget.ticketsMode
                       ? 'تذكرة #$id'
-                      : detail?['customerName']?.toString() ?? 'محادثة الدعم',
+                      : detail?['customerName']?.toString() ??
+                          _selectedItem?['customerName']?.toString() ??
+                          'محادثة الدعم',
                   style: Theme.of(context).textTheme.titleMedium,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -492,6 +622,8 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
             ],
           ),
         ),
+        if (!widget.ticketsMode && detail != null)
+          _buildConversationRideStatus(detail),
         if (widget.ticketsMode && detail != null) ...[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -559,6 +691,28 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
                   );
                 }),
               ],
+            ),
+          ),
+        if (!widget.ticketsMode && detail?['status'] == 'active')
+          Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 4),
+            child: SizedBox(
+              height: 44,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _quickReplies().length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final reply = _quickReplies()[index];
+                  return ActionChip(
+                    key: ValueKey('support-quick-reply-$index'),
+                    label: Text(reply, maxLines: 1),
+                    onPressed: _sending
+                        ? null
+                        : () => unawaited(_sendReply(message: reply)),
+                  );
+                },
+              ),
             ),
           ),
         if (!widget.ticketsMode || detail?['status'] != 'resolved')
