@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -11,7 +12,9 @@ import '../core/driver_marker_presentation.dart';
 import '../core/ride_route_presentation.dart';
 import '../widgets/admin_drawer.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/map_marker_details_card.dart';
 import '../widgets/map_stats_overlay.dart';
+import '../core/map_hover_listener.dart';
 import 'driver_management_screen.dart';
 import 'coupon_management_screen.dart';
 import 'admin_settings_screen.dart';
@@ -42,6 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final Map<int, _RiderLocation> _riders = {};
   final Map<int, _ActiveRide> _activeRides = {};
   final Map<Color, BitmapDescriptor> _markerIcons = {};
+  final Map<Color, BitmapDescriptor> _driverMarkerIcons = {};
+  final Map<MarkerId, Offset> _markerScreenPositions = {};
   final ValueNotifier<Set<Marker>> _markerNotifier = ValueNotifier(<Marker>{});
   final GlobalKey<DashboardNavigationState> _dashboardNavigationKey =
       GlobalKey<DashboardNavigationState>();
@@ -50,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<SupportManagementScreenState> _supportTicketsKey =
       GlobalKey<SupportManagementScreenState>();
   GoogleMapController? _mapController;
+  MapHoverListener? _mapHoverListener;
   socket_io_client.Socket? _socket;
   Timer? _freshnessTimer;
   bool _isLoadingDrivers = false;
@@ -58,6 +64,8 @@ class _HomeScreenState extends State<HomeScreen> {
   AdminDestination _selectedDestination = AdminDestination.driverMap;
   String? _mapError;
   bool _hasFramedDrivers = false;
+  MarkerId? _hoveredMarkerId;
+  MarkerId? _selectedMarkerId;
   int _unreadSupportConversationCount = 0;
   int _unreadSupportTicketCount = 0;
 
@@ -77,6 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _freshnessTimer?.cancel();
     _socket?.dispose();
+    _mapHoverListener?.dispose();
     _mapController?.dispose();
     _markerNotifier.dispose();
     super.dispose();
@@ -141,7 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _maxRiderLocationAgeSeconds = maxRiderAge;
         _mapError = null;
       });
-      _markerNotifier.value = _markers;
+      _publishMarkers();
       _frameDrivers();
     } on DioException catch (error) {
       if (error.response?.statusCode == 401) {
@@ -155,21 +164,29 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadMarkerIcons() async {
-    final colors = [
+    final driverColors = [
       DriverMarkerPresentation.offlineColor,
       DriverMarkerPresentation.onlineColor,
       DriverMarkerPresentation.activeRideColor,
+    ];
+    final riderColors = [
       DriverMarkerPresentation.riderOnlineColor,
       DriverMarkerPresentation.riderActiveRideColor,
     ];
-    final icons = await Future.wait(
-      colors.map(DriverMarkerPresentation.markerIcon),
+    final driverIcons = await Future.wait(
+      driverColors.map(DriverMarkerPresentation.driverMarkerIcon),
+    );
+    final riderIcons = await Future.wait(
+      riderColors.map(DriverMarkerPresentation.markerIcon),
     );
     if (!mounted) return;
-    for (var index = 0; index < colors.length; index++) {
-      _markerIcons[colors[index]] = icons[index];
+    for (var index = 0; index < driverColors.length; index++) {
+      _driverMarkerIcons[driverColors[index]] = driverIcons[index];
     }
-    _markerNotifier.value = _markers;
+    for (var index = 0; index < riderColors.length; index++) {
+      _markerIcons[riderColors[index]] = riderIcons[index];
+    }
+    _publishMarkers();
   }
 
   void _connectSocket() {
@@ -263,24 +280,32 @@ class _HomeScreenState extends State<HomeScreen> {
     final driver = _DriverLocation.fromJson(
       payload,
       fallbackStatus: _drivers[driverId]?.status ?? 'idle',
+      fallbackFullName: _drivers[driverId]?.fullName,
+      fallbackPhone: _drivers[driverId]?.phone,
     );
     if (driver == null || !mounted) return;
     setState(() {
       _drivers[driver.id] = driver;
       _mapError = null;
     });
-    _markerNotifier.value = _markers;
+    _publishMarkers();
     _frameDrivers();
   }
 
   void _updateRider(Map payload) {
-    final rider = _RiderLocation.fromJson(payload);
+    final riderId = (payload['id'] as num?)?.toInt();
+    final previousRider = riderId == null ? null : _riders[riderId];
+    final rider = _RiderLocation.fromJson(
+      payload,
+      fallbackFullName: previousRider?.fullName,
+      fallbackPhone: previousRider?.phone,
+    );
     if (rider == null || !mounted) return;
     setState(() {
       _riders[rider.id] = rider;
       _mapError = null;
     });
-    _markerNotifier.value = _markers;
+    _publishMarkers();
     _frameDrivers();
   }
 
@@ -288,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final riderId = (payload['id'] as num?)?.toInt();
     if (riderId == null || !mounted) return;
     setState(() => _riders.remove(riderId));
-    _markerNotifier.value = _markers;
+    _publishMarkers();
   }
 
   void _updateRiderRideState(Map payload) {
@@ -318,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     });
-    _markerNotifier.value = _markers;
+    _publishMarkers();
   }
 
   void _frameDrivers() {
@@ -368,6 +393,128 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _publishMarkers() {
+    _markerNotifier.value = _markers;
+    unawaited(_refreshMarkerScreenPositions());
+  }
+
+  Map<MarkerId, _MapMarkerDetails> get _markerDetails {
+    final details = <MarkerId, _MapMarkerDetails>{};
+    for (final driver in _drivers.values) {
+      final presentation = DriverMarkerPresentation.fromDriver(
+        isOnline: driver.isOnline,
+        status: driver.status,
+      );
+      if (!_driverMarkerIcons.containsKey(presentation.color)) continue;
+      final markerId = MarkerId('driver-${driver.id}');
+      details[markerId] = _MapMarkerDetails(
+        position: driver.position,
+        role: 'السائق',
+        name: driver.fullName,
+        phone: driver.phone,
+        status: presentation.label,
+        updatedAt: driver.updatedAt?.toLocal().toString() ?? 'غير متوفر',
+        statusColor: presentation.color,
+      );
+    }
+    for (final rider in _riders.values) {
+      final presentation = DriverMarkerPresentation.fromRider(
+        hasActiveRide: rider.hasActiveRide,
+      );
+      if (!_markerIcons.containsKey(presentation.color)) continue;
+      final markerId = MarkerId('rider-${rider.id}');
+      details[markerId] = _MapMarkerDetails(
+        position: rider.position,
+        role: 'الراكب',
+        name: rider.fullName,
+        phone: rider.phone,
+        status: presentation.label,
+        updatedAt: rider.updatedAt?.toLocal().toString() ?? 'غير متوفر',
+        statusColor: presentation.color,
+      );
+    }
+    return details;
+  }
+
+  Future<void> _refreshMarkerScreenPositions() async {
+    final controller = _mapController;
+    if (controller == null) return;
+    final details = _markerDetails;
+    final coordinates = await Future.wait(
+      details.entries.map((entry) async {
+        try {
+          final coordinate =
+              await controller.getScreenCoordinate(entry.value.position);
+          return MapEntry(
+            entry.key,
+            Offset(coordinate.x.toDouble(), coordinate.y.toDouble()),
+          );
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    if (!mounted || !identical(controller, _mapController)) return;
+    setState(() {
+      _markerScreenPositions
+        ..clear()
+        ..addEntries(coordinates.whereType<MapEntry<MarkerId, Offset>>());
+      if (!_markerDetails.containsKey(_hoveredMarkerId)) {
+        _hoveredMarkerId = null;
+      }
+      if (!_markerDetails.containsKey(_selectedMarkerId)) {
+        _selectedMarkerId = null;
+      }
+    });
+  }
+
+  void _attachMapHoverListener(GoogleMapController controller) {
+    _mapHoverListener?.dispose();
+    _mapHoverListener = attachMapHoverListener(
+      controller.mapId,
+      _handleMapPointer,
+    );
+    unawaited(_refreshMarkerScreenPositions());
+  }
+
+  void _handleMapPointer(Offset? pointerPosition) {
+    if (pointerPosition == null) {
+      if (_hoveredMarkerId != null && mounted) {
+        setState(() => _hoveredMarkerId = null);
+      }
+      return;
+    }
+    MarkerId? nearestMarker;
+    var nearestDistance = (34 * 34).toDouble();
+    for (final entry in _markerScreenPositions.entries) {
+      final dx = entry.value.dx - pointerPosition.dx;
+      final dy = entry.value.dy - pointerPosition.dy;
+      final distance = dx * dx + dy * dy;
+      if (distance <= nearestDistance) {
+        nearestDistance = distance;
+        nearestMarker = entry.key;
+      }
+    }
+    if (nearestMarker != _hoveredMarkerId && mounted) {
+      setState(() => _hoveredMarkerId = nearestMarker);
+    }
+  }
+
+  void _selectMarker(MarkerId markerId) {
+    if (!mounted) return;
+    setState(() => _selectedMarkerId = markerId);
+  }
+
+  void _holdMarkerCard(MarkerId markerId) {
+    if (!mounted) return;
+    setState(() => _selectedMarkerId = markerId);
+  }
+
+  void _releaseMarkerCard(MarkerId markerId) {
+    if (!mounted || _selectedMarkerId != markerId) return;
+    setState(() => _selectedMarkerId = null);
+  }
+
   Set<Marker> get _markers {
     final markers = _drivers.values
         .map((driver) {
@@ -375,17 +522,24 @@ class _HomeScreenState extends State<HomeScreen> {
             isOnline: driver.isOnline,
             status: driver.status,
           );
-          final icon = _markerIcons[presentation.color];
+          final icon = _driverMarkerIcons[presentation.color];
           if (icon == null) return null;
+          final markerId = MarkerId('driver-${driver.id}');
           final lastUpdate =
               driver.updatedAt?.toLocal().toString() ?? 'غير متوفر';
           return Marker(
-            markerId: MarkerId('driver-${driver.id}'),
+            markerId: markerId,
             position: driver.position,
             icon: icon,
-            infoWindow: InfoWindow(
-              title: 'السائق ${driver.id}',
-              snippet: '${presentation.label} · آخر تحديث: $lastUpdate',
+            consumeTapEvents: true,
+            onTap: () => _selectMarker(markerId),
+            infoWindow: DriverMarkerPresentation.infoWindow(
+              role: 'السائق',
+              id: driver.id,
+              fullName: driver.fullName,
+              phone: driver.phone,
+              status: presentation.label,
+              lastUpdated: lastUpdate,
             ),
           );
         })
@@ -397,14 +551,21 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       final icon = _markerIcons[presentation.color];
       if (icon == null) continue;
+      final markerId = MarkerId('rider-${rider.id}');
       final lastUpdate = rider.updatedAt?.toLocal().toString() ?? 'غير متوفر';
       markers.add(Marker(
-        markerId: MarkerId('rider-${rider.id}'),
+        markerId: markerId,
         position: rider.position,
         icon: icon,
-        infoWindow: InfoWindow(
-          title: 'الراكب ${rider.id}',
-          snippet: '${presentation.label} · آخر تحديث: $lastUpdate',
+        consumeTapEvents: true,
+        onTap: () => _selectMarker(markerId),
+        infoWindow: DriverMarkerPresentation.infoWindow(
+          role: 'الراكب',
+          id: rider.id,
+          fullName: rider.fullName,
+          phone: rider.phone,
+          status: presentation.label,
+          lastUpdated: lastUpdate,
         ),
       ));
     }
@@ -584,17 +745,73 @@ class _HomeScreenState extends State<HomeScreen> {
                 key: _dashboardNavigationKey,
                 homeBuilder: (_) => ValueListenableBuilder<Set<Marker>>(
                   valueListenable: _markerNotifier,
-                  builder: (context, markers, _) => GoogleMap(
-                    initialCameraPosition: const CameraPosition(
-                      target: LatLng(20, 0),
-                      zoom: 2,
-                    ),
-                    markers: markers,
-                    polylines: _polylines,
-                    myLocationButtonEnabled: false,
-                    onMapCreated: (controller) {
-                      _mapController = controller;
-                      _frameDrivers();
+                  builder: (context, markers, _) => LayoutBuilder(
+                    builder: (context, constraints) {
+                      final markerId = _hoveredMarkerId ?? _selectedMarkerId;
+                      final details =
+                          markerId == null ? null : _markerDetails[markerId];
+                      final position = markerId == null
+                          ? null
+                          : _markerScreenPositions[markerId];
+                      final cardWidth =
+                          math.max(0.0, math.min(300.0, constraints.maxWidth - 24));
+                      final cardLeft = position == null
+                          ? 12.0
+                          : (position.dx + 20).clamp(
+                              12.0,
+                              math.max(12.0, constraints.maxWidth - cardWidth - 12),
+                            ).toDouble();
+                      final cardTop = position == null
+                          ? 12.0
+                          : (position.dy + 20).clamp(
+                              12.0,
+                              math.max(12.0, constraints.maxHeight - 190),
+                            ).toDouble();
+                      return Stack(
+                        children: [
+                          GoogleMap(
+                            initialCameraPosition: const CameraPosition(
+                              target: LatLng(20, 0),
+                              zoom: 2,
+                            ),
+                            markers: markers,
+                            polylines: _polylines,
+                            myLocationButtonEnabled: false,
+                            onTap: (_) => setState(() {
+                              _selectedMarkerId = null;
+                            }),
+                            onCameraIdle: () =>
+                                unawaited(_refreshMarkerScreenPositions()),
+                            onMapCreated: (controller) {
+                              _mapController = controller;
+                              _attachMapHoverListener(controller);
+                              _frameDrivers();
+                            },
+                          ),
+                          if (details != null)
+                            Positioned(
+                              left: cardLeft,
+                              top: cardTop,
+                              width: cardWidth,
+                              child: MouseRegion(
+                                onEnter: (_) => _holdMarkerCard(markerId!),
+                                onExit: (_) => _releaseMarkerCard(markerId!),
+                                child: MapMarkerDetailsCard(
+                                  role: details.role,
+                                  name: details.name,
+                                  phone: details.phone,
+                                  status: details.status,
+                                  updatedAt: details.updatedAt,
+                                  statusColor: details.statusColor,
+                                  onDismiss: () => setState(() {
+                                    _selectedMarkerId = null;
+                                    _hoveredMarkerId = null;
+                                  }),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
                     },
                   ),
                 ),
@@ -732,9 +949,31 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _MapMarkerDetails {
+  const _MapMarkerDetails({
+    required this.position,
+    required this.role,
+    required this.name,
+    required this.phone,
+    required this.status,
+    required this.updatedAt,
+    required this.statusColor,
+  });
+
+  final LatLng position;
+  final String role;
+  final String? name;
+  final String? phone;
+  final String status;
+  final String updatedAt;
+  final Color statusColor;
+}
+
 class _DriverLocation {
   const _DriverLocation({
     required this.id,
+    this.fullName,
+    this.phone,
     required this.latitude,
     required this.longitude,
     required this.isOnline,
@@ -743,6 +982,8 @@ class _DriverLocation {
   });
 
   final int id;
+  final String? fullName;
+  final String? phone;
   final double latitude;
   final double longitude;
   final bool isOnline;
@@ -754,6 +995,8 @@ class _DriverLocation {
   static _DriverLocation? fromJson(
     Map<dynamic, dynamic> json, {
     String? fallbackStatus,
+    String? fallbackFullName,
+    String? fallbackPhone,
   }) {
     final id = (json['id'] as num?)?.toInt();
     final latitude = double.tryParse(json['latitude']?.toString() ?? '');
@@ -762,6 +1005,14 @@ class _DriverLocation {
     final rawUpdatedAt = json['lastLocationUpdate'] ?? json['updatedAt'];
     return _DriverLocation(
       id: id,
+      fullName: DriverMarkerPresentation.preserveIdentityValue(
+        json['fullName']?.toString(),
+        fallbackFullName,
+      ),
+      phone: DriverMarkerPresentation.preserveIdentityValue(
+        json['phone']?.toString(),
+        fallbackPhone,
+      ),
       latitude: latitude,
       longitude: longitude,
       isOnline: json['isOnline'] == true || json['isOnline'] == 1,
@@ -776,6 +1027,8 @@ class _DriverLocation {
 class _RiderLocation {
   const _RiderLocation({
     required this.id,
+    this.fullName,
+    this.phone,
     required this.latitude,
     required this.longitude,
     required this.hasActiveRide,
@@ -783,6 +1036,8 @@ class _RiderLocation {
   });
 
   final int id;
+  final String? fullName;
+  final String? phone;
   final double latitude;
   final double longitude;
   final bool hasActiveRide;
@@ -792,13 +1047,19 @@ class _RiderLocation {
 
   _RiderLocation copyWith({bool? hasActiveRide}) => _RiderLocation(
         id: id,
+        fullName: fullName,
+        phone: phone,
         latitude: latitude,
         longitude: longitude,
         hasActiveRide: hasActiveRide ?? this.hasActiveRide,
         updatedAt: updatedAt,
       );
 
-  static _RiderLocation? fromJson(Map<dynamic, dynamic> json) {
+  static _RiderLocation? fromJson(
+    Map<dynamic, dynamic> json, {
+    String? fallbackFullName,
+    String? fallbackPhone,
+  }) {
     final id = (json['id'] as num?)?.toInt();
     final latitude = double.tryParse(json['latitude']?.toString() ?? '');
     final longitude = double.tryParse(json['longitude']?.toString() ?? '');
@@ -806,6 +1067,14 @@ class _RiderLocation {
     final rawUpdatedAt = json['lastLocationUpdate'] ?? json['updatedAt'];
     return _RiderLocation(
       id: id,
+      fullName: DriverMarkerPresentation.preserveIdentityValue(
+        json['fullName']?.toString(),
+        fallbackFullName,
+      ),
+      phone: DriverMarkerPresentation.preserveIdentityValue(
+        json['phone']?.toString(),
+        fallbackPhone,
+      ),
       latitude: latitude,
       longitude: longitude,
       hasActiveRide:

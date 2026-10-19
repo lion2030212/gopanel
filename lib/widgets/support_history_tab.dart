@@ -336,6 +336,7 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
           ),
         ],
       ),
+      _buildParticipantDetails(_detail ?? _selectedRecord),
     ];
     final details = _detail?['details']?.toString().trim();
     if (widget.ticketsMode && details?.isNotEmpty == true) {
@@ -412,6 +413,56 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
     return date == null ? '' : intl.DateFormat('y/MM/dd HH:mm').format(date);
   }
 
+  String _personValue(dynamic value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? 'غير متاح' : text;
+  }
+
+  String _roleLabel(dynamic value) {
+    switch (value) {
+      case 'driver':
+        return 'سائق';
+      case 'rider':
+        return 'راكب';
+      case 'employee':
+        return 'موظف';
+      default:
+        return 'غير محدد';
+    }
+  }
+
+  Widget _buildParticipantDetails(Map<String, dynamic>? record) {
+    if (record == null) return const SizedBox.shrink();
+    final lines = <String>[
+      'صاحب السجل: ${_personValue(record['customerName'])} · '
+          '${_personValue(record['customerPhone'])} · '
+          '${_roleLabel(record['userRole'])}',
+    ];
+    if (record['supportEmployeeRole'] == 'employee') {
+      lines.add(
+        'موظف الدعم: ${_personValue(record['supportEmployeeName'])} · '
+        '${_personValue(record['supportEmployeePhone'])} · موظف',
+      );
+    }
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(top: 4, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final line in lines)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                line,
+                style: Theme.of(context).textTheme.bodySmall,
+                textDirection: TextDirection.rtl,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRecord(Map<String, dynamic> item) {
     final id = item['id']?.toString() ?? '';
     final isExpanded = _selectedRecordId == id;
@@ -427,8 +478,14 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
           ListTile(
             title:
                 Text(widget.ticketsMode ? 'شكوى #$id' : 'محادثة خدمة العملاء'),
-            subtitle:
+            isThreeLine: true,
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+                _buildParticipantDetails(item),
+              ],
+            ),
             trailing: Icon(isExpanded ? Icons.expand_less : Icons.expand_more),
             onTap: () => unawaited(_openItem(item)),
           ),

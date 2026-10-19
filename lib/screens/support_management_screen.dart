@@ -35,6 +35,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   };
 
   late final Dio _dio;
+  final ScrollController _messagesController = ScrollController();
   final TextEditingController _replyController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   final List<Map<String, dynamic>> _items = [];
@@ -84,6 +85,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     _searchTimer?.cancel();
     _socketRefreshTimer?.cancel();
     _socket?.dispose();
+    _messagesController.dispose();
     _replyController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -170,12 +172,25 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         _scheduleSocketRefresh(payload, refreshDetail: true);
       }
     });
+    socket.on('support:conversation:read', (payload) {
+      if (!widget.ticketsMode &&
+          payload is Map &&
+          payload['reader'] == 'customer') {
+        _scheduleSocketRefresh(payload, refreshDetail: true);
+      }
+    });
     socket.on('support:conversations:changed', (payload) {
-      if (!widget.ticketsMode) _scheduleSocketRefresh(payload);
+      if (!widget.ticketsMode) {
+        _scheduleSocketRefresh(
+          payload,
+          refreshDetail: payload is Map && payload['event'] == 'delivery',
+        );
+      }
     });
     socket.on('support:tickets:changed', (payload) {
-      if (widget.ticketsMode)
+      if (widget.ticketsMode) {
         _scheduleSocketRefresh(payload, refreshDetail: true);
+      }
     });
     socket.connect();
   }
@@ -222,7 +237,11 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     await _loadDetail(id, requestId: requestId);
   }
 
-  Future<void> _loadDetail(int id, {int? requestId}) async {
+  Future<void> _loadDetail(
+    int id, {
+    int? requestId,
+    bool followLatest = false,
+  }) async {
     if (_id(_selectedItem?['id']) != id) return;
     final activeRequestId = requestId ?? ++_detailRequestId;
     try {
@@ -236,12 +255,15 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
           .map((message) => Map<String, dynamic>.from(message))
           .toList();
       if (!_isCurrentDetailRequest(id, activeRequestId)) return;
+        final shouldFollowLatest =
+          followLatest || _loadingDetail || _isNearLatestMessage();
       setState(() {
         final detail = data[widget.ticketsMode ? 'ticket' : 'conversation'];
         _detail = detail is Map ? Map<String, dynamic>.from(detail) : null;
         _messages = messages;
         _loadingDetail = false;
       });
+      if (shouldFollowLatest) _scrollToLatestMessage();
       if (widget.ticketsMode) widget.onTicketRead?.call();
     } on DioException catch (error) {
       if (!_isCurrentDetailRequest(id, activeRequestId)) return;
@@ -263,6 +285,25 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
       requestId == _detailRequestId &&
       _id(_selectedItem?['id']) == id;
 
+  bool _isNearLatestMessage() {
+    if (!_messagesController.hasClients) return true;
+    final position = _messagesController.position;
+    return position.pixels <= 120;
+  }
+
+  void _scrollToLatestMessage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messagesController.hasClients) return;
+      final position = _messagesController.position;
+      if (position.pixels <= 0) return;
+      unawaited(_messagesController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      ));
+    });
+  }
+
   Future<void> _sendReply({String? message}) async {
     final id = _id(_selectedItem?['id']);
     final body = (message ?? _replyController.text).trim();
@@ -275,7 +316,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         options: _auth,
       );
       if (message == null) _replyController.clear();
-      await _loadDetail(id);
+      await _loadDetail(id, followLatest: true);
       await _loadItems();
     } on DioException catch (error) {
       if (mounted) {
@@ -585,6 +626,24 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     }
     final detail = _detail;
     final id = _id(_selectedItem!['id']) ?? 0;
+    final messageWidgets = <Widget>[
+      if (widget.ticketsMode && detail != null)
+        Align(
+          alignment: Alignment.centerRight,
+          child: _messageBubble(detail['details']?.toString() ?? '', false),
+        ),
+      ..._messages.map((message) {
+        final isAdmin = message['senderType'] == 'admin';
+        return Align(
+          alignment: isAdmin ? Alignment.centerLeft : Alignment.centerRight,
+          child: _messageBubble(
+            message['body']?.toString() ?? '',
+            isAdmin,
+            message: message,
+          ),
+        );
+      }),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -673,24 +732,10 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         else
           Expanded(
             child: ListView(
+              controller: _messagesController,
+              reverse: true,
               padding: const EdgeInsets.all(16),
-              children: [
-                if (widget.ticketsMode && detail != null)
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: _messageBubble(
-                        detail['details']?.toString() ?? '', false),
-                  ),
-                ..._messages.map((message) {
-                  final isAdmin = message['senderType'] == 'admin';
-                  return Align(
-                    alignment:
-                        isAdmin ? Alignment.centerLeft : Alignment.centerRight,
-                    child: _messageBubble(
-                        message['body']?.toString() ?? '', isAdmin),
-                  );
-                }),
-              ],
+              children: messageWidgets.reversed.toList(),
             ),
           ),
         if (!widget.ticketsMode && detail?['status'] == 'active')
@@ -776,16 +821,50 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     );
   }
 
-  Widget _messageBubble(String body, bool isAdmin) => Container(
-        constraints: const BoxConstraints(maxWidth: 520),
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: isAdmin ? const Color(0xFFE7F1E9) : const Color(0xFFEAF2FA),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(body),
-      );
+  Widget _messageBubble(
+    String body,
+    bool isAdmin, {
+    Map<String, dynamic>? message,
+  }) {
+    final isRead = message?['readAt'] != null;
+    final isDelivered = message?['deliveredAt'] != null;
+    final receiptLabel = isRead
+        ? 'تم العرض'
+        : isDelivered
+            ? 'تم الاستلام'
+            : 'تم الإرسال';
+    final receiptIcon = isDelivered ? Icons.done_all : Icons.done;
+    final receiptColor = isRead ? const Color(0xFF34B7F1) : Colors.blueGrey;
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 520),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isAdmin ? const Color(0xFFE7F1E9) : const Color(0xFFEAF2FA),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Flexible(child: Text(body)),
+          if (isAdmin && message != null) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: receiptLabel,
+              child: Icon(
+                receiptIcon,
+                key: ValueKey('support-receipt-${message['id']}'),
+                size: 16,
+                color: receiptColor,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 
   String _categoryLabel(String? value) => switch (value) {
         'payment' => 'مشكلة في الدفع',

@@ -186,4 +186,166 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets('long conversation opens with its latest message visible',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final conversation = {
+      'id': 11,
+      'userId': 8,
+      'userRole': 'rider',
+      'status': 'active',
+      'customerName': 'سامي علي',
+      'customerPhone': '0500000000',
+      'unreadCount': 0,
+    };
+    final messages = List.generate(
+      60,
+      (index) => {'body': 'رسالة طويلة $index'},
+    );
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        if (options.path == '/api/admin/support/conversations') {
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {'conversations': [conversation]},
+          ));
+          return;
+        }
+        handler.resolve(Response(
+          requestOptions: options,
+          data: {
+            'conversation': conversation,
+            'messages': messages,
+          },
+        ));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: SupportManagementScreen(
+        adminToken: 'admin-token',
+        onSessionExpired: fail,
+        ticketsMode: false,
+        client: client,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('سامي علي').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('رسالة طويلة 59'), findsOneWidget);
+    expect(tester.getRect(find.text('رسالة طويلة 59')).overlaps(
+      tester.getRect(find.byType(ListView).at(1)),
+    ), isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('admin replies show sent, delivered, and read checks in both modes',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final messages = [
+      {
+        'id': 101,
+        'senderType': 'admin',
+        'body': 'رد مرسل',
+        'sentAt': '2026-10-19T10:00:00Z',
+        'deliveredAt': null,
+        'readAt': null,
+      },
+      {
+        'id': 102,
+        'senderType': 'admin',
+        'body': 'رد مستلم',
+        'sentAt': '2026-10-19T10:01:00Z',
+        'deliveredAt': '2026-10-19T10:02:00Z',
+        'readAt': null,
+      },
+      {
+        'id': 103,
+        'senderType': 'admin',
+        'body': 'رد مقروء',
+        'sentAt': '2026-10-19T10:03:00Z',
+        'deliveredAt': '2026-10-19T10:03:30Z',
+        'readAt': '2026-10-19T10:04:00Z',
+      },
+      {
+        'id': 104,
+        'senderType': 'customer',
+        'body': 'رسالة العميل',
+        'sentAt': '2026-10-19T10:05:00Z',
+        'deliveredAt': '2026-10-19T10:05:30Z',
+        'readAt': '2026-10-19T10:06:00Z',
+      },
+    ];
+
+    for (final ticketsMode in [false, true]) {
+      final itemId = ticketsMode ? 44 : 11;
+      final item = {
+        'id': itemId,
+        'userId': 8,
+        'userRole': 'rider',
+        'status': ticketsMode ? 'open' : 'active',
+        'customerName': 'سامي علي',
+        'customerPhone': '0500000000',
+        'unreadCount': 0,
+      };
+      final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      client.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final collectionPath = ticketsMode
+              ? '/api/admin/support/tickets'
+              : '/api/admin/support/conversations';
+          if (options.path == collectionPath) {
+            handler.resolve(Response(
+              requestOptions: options,
+              data: {ticketsMode ? 'tickets' : 'conversations': [item]},
+            ));
+            return;
+          }
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {
+              ticketsMode ? 'ticket' : 'conversation': {
+                ...item,
+                'details': 'تفاصيل الشكوى',
+                'rideId': null,
+              },
+              'messages': messages,
+            },
+          ));
+        },
+      ));
+
+      await tester.pumpWidget(MaterialApp(
+        home: SupportManagementScreen(
+          adminToken: 'admin-token',
+          onSessionExpired: fail,
+          ticketsMode: ticketsMode,
+          client: client,
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(ticketsMode ? 'تذكرة #44' : 'سامي علي').first);
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.done), findsOneWidget);
+      expect(find.byIcon(Icons.done_all), findsNWidgets(2));
+      expect(find.byTooltip('تم الإرسال'), findsOneWidget);
+      expect(find.byTooltip('تم الاستلام'), findsOneWidget);
+      expect(find.byTooltip('تم العرض'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
 }

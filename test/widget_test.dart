@@ -15,6 +15,7 @@ import 'package:admin_panel/screens/ride_history_screen.dart';
 import 'package:admin_panel/screens/staff_management_screen.dart';
 import 'package:admin_panel/widgets/admin_drawer.dart';
 import 'package:admin_panel/widgets/dashboard_navigation.dart';
+import 'package:admin_panel/widgets/map_marker_details_card.dart';
 import 'package:admin_panel/widgets/map_stats_overlay.dart';
 import 'package:admin_panel/widgets/support_history_tab.dart';
 import 'package:admin_panel/screens/support_management_screen.dart';
@@ -445,6 +446,11 @@ void main() {
                     'id': 44,
                     'userId': 12,
                     'userRole': 'driver',
+                    'customerName': 'سائق الاختبار',
+                    'customerPhone': '0500000000',
+                    'supportEmployeeName': 'موظف الدعم',
+                    'supportEmployeePhone': '0550000000',
+                    'supportEmployeeRole': 'employee',
                     'category': 'other',
                     'status': 'open',
                     'details': 'نص البلاغ',
@@ -454,7 +460,16 @@ void main() {
                 'total': 1,
               }
             : {
-                'ticket': {'id': 44, 'details': 'نص البلاغ'},
+                'ticket': {
+                  'id': 44,
+                  'userRole': 'driver',
+                  'customerName': 'سائق الاختبار',
+                  'customerPhone': '0500000000',
+                  'supportEmployeeName': 'موظف الدعم',
+                  'supportEmployeePhone': '0550000000',
+                  'supportEmployeeRole': 'employee',
+                  'details': 'نص البلاغ',
+                },
                 'messages': [],
               };
         handler.resolve(Response(requestOptions: options, data: data));
@@ -476,6 +491,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('شكوى #44'), findsOneWidget);
+    expect(
+      find.text('صاحب السجل: سائق الاختبار · 0500000000 · سائق'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('موظف الدعم: موظف الدعم · 0550000000 · موظف'),
+      findsOneWidget,
+    );
     expect(requests.first.queryParameters['userId'], 12);
     expect(requests.first.queryParameters['userRole'], 'driver');
     expect(requests.first.queryParameters.containsKey('startAt'), isFalse);
@@ -526,6 +549,64 @@ void main() {
       find.byKey(const ValueKey('support-history-detail-44')),
       findsNothing,
     );
+  });
+
+  testWidgets(
+      'support conversation history shows rider identity without an employee',
+      (tester) async {
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        final data = options.path == '/api/admin/support/history/conversations'
+            ? {
+                'conversations': [
+                  {
+                    'id': 19,
+                    'userId': 12,
+                    'userRole': 'rider',
+                    'customerName': 'راكب الاختبار',
+                    'customerPhone': '0511111111',
+                    'status': 'closed',
+                    'createdAt': '2026-10-02 09:00:00',
+                  },
+                ],
+                'total': 1,
+              }
+            : {
+                'conversation': {
+                  'id': 19,
+                  'userRole': 'rider',
+                  'customerName': 'راكب الاختبار',
+                  'customerPhone': '0511111111',
+                },
+                'messages': [],
+              };
+        handler.resolve(Response(requestOptions: options, data: data));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SupportHistoryTab(
+          client: client,
+          adminToken: 'admin-token',
+          userId: 12,
+          userRole: 'rider',
+          ticketsMode: false,
+          onSessionExpired: fail,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    const riderIdentity = 'صاحب السجل: راكب الاختبار · 0511111111 · راكب';
+    expect(find.text(riderIdentity), findsOneWidget);
+    expect(find.textContaining('موظف الدعم:'), findsNothing);
+
+    await tester.tap(find.text('محادثة خدمة العملاء').first);
+    await tester.pumpAndSettle();
+    expect(find.text(riderIdentity), findsNWidgets(2));
+    expect(find.textContaining('موظف الدعم:'), findsNothing);
   });
 
   testWidgets('general support list highlights driver-origin rows only',
@@ -658,7 +739,7 @@ void main() {
     expect(find.text('خريطة السائقين'), findsOneWidget);
   });
 
-  test('driver marker presentation creates distinct colored pin images',
+  test('driver marker presentation creates distinct colored car images',
       () async {
     final offline = DriverMarkerPresentation.fromDriver(
       isOnline: false,
@@ -679,11 +760,40 @@ void main() {
     expect(online.color, DriverMarkerPresentation.onlineColor);
     expect(active.label, 'في رحلة');
     expect(active.color, DriverMarkerPresentation.activeRideColor);
+    expect(DriverMarkerPresentation.firstName('  سارة أحمد  '), 'سارة');
+    expect(DriverMarkerPresentation.firstName(''), '');
+    expect(
+      DriverMarkerPresentation.preserveIdentityValue(null, 'سارة'),
+      'سارة',
+    );
+    expect(
+      DriverMarkerPresentation.preserveIdentityValue('', '+201000000008'),
+      '+201000000008',
+    );
+    expect(
+      DriverMarkerPresentation.preserveIdentityValue('منى', 'سارة'),
+      'منى',
+    );
+    final driverInfo = DriverMarkerPresentation.infoWindow(
+      role: 'السائق',
+      id: 8,
+      fullName: 'سارة أحمد',
+      phone: '+201000000008',
+      status: active.label,
+      lastUpdated: '2026-10-19 12:00:00',
+    );
+    expect(driverInfo.title, 'السائق سارة');
+    expect(
+      driverInfo.snippet,
+      'الجوال: +201000000008\nالحالة: في رحلة\nآخر تحديث: 2026-10-19 12:00:00',
+    );
 
     final offlineIcon =
-        await DriverMarkerPresentation.markerIcon(offline.color);
-    final onlineIcon = await DriverMarkerPresentation.markerIcon(online.color);
-    final activeIcon = await DriverMarkerPresentation.markerIcon(active.color);
+        await DriverMarkerPresentation.driverMarkerIcon(offline.color);
+    final onlineIcon =
+        await DriverMarkerPresentation.driverMarkerIcon(online.color);
+    final activeIcon =
+        await DriverMarkerPresentation.driverMarkerIcon(active.color);
 
     expect(offlineIcon, isA<BytesMapBitmap>());
     expect(onlineIcon, isA<BytesMapBitmap>());
@@ -700,6 +810,19 @@ void main() {
     expect(online.color, DriverMarkerPresentation.riderOnlineColor);
     expect(active.label, 'في رحلة');
     expect(active.color, DriverMarkerPresentation.riderActiveRideColor);
+    final riderInfo = DriverMarkerPresentation.infoWindow(
+      role: 'الراكب',
+      id: 12,
+      fullName: 'منى حسن',
+      phone: '+201000000012',
+      status: online.label,
+      lastUpdated: '2026-10-19 12:00:00',
+    );
+    expect(riderInfo.title, 'الراكب منى');
+    expect(
+      riderInfo.snippet,
+      'الجوال: +201000000012\nالحالة: متصل\nآخر تحديث: 2026-10-19 12:00:00',
+    );
     expect(
       await DriverMarkerPresentation.markerIcon(online.color),
       isA<BytesMapBitmap>(),
@@ -708,6 +831,45 @@ void main() {
       await DriverMarkerPresentation.markerIcon(active.color),
       isA<BytesMapBitmap>(),
     );
+  });
+
+  testWidgets('map marker details card shows Arabic fields and dismisses',
+      (tester) async {
+    var dismissed = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: MapMarkerDetailsCard(
+          role: 'السائق',
+          name: 'سارة أحمد',
+          phone: '+201000000008',
+          status: 'في رحلة',
+          updatedAt: '2026-10-19 12:00:00',
+          statusColor: DriverMarkerPresentation.activeRideColor,
+          onDismiss: () => dismissed = true,
+        ),
+      ),
+    ));
+
+    expect(find.text('السائق'), findsOneWidget);
+    expect(find.text('الاسم'), findsOneWidget);
+    expect(find.text('سارة أحمد'), findsOneWidget);
+    expect(find.text('الجوال'), findsOneWidget);
+    expect(find.text('+201000000008'), findsOneWidget);
+    expect(find.text('الحالة'), findsOneWidget);
+    expect(find.text('في رحلة'), findsOneWidget);
+    expect(find.text('آخر تحديث'), findsOneWidget);
+    expect(find.text('2026-10-19 12:00:00'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Directionality &&
+            widget.textDirection == TextDirection.rtl,
+      ),
+      findsWidgets,
+    );
+
+    await tester.tap(find.byTooltip('إغلاق'));
+    expect(dismissed, isTrue);
   });
 
   test('active ride route colors are stable and distinct', () {
