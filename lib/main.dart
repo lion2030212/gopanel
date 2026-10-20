@@ -1,10 +1,23 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import 'core/admin_firebase_photo_storage.dart';
 import 'core/admin_session.dart';
 import 'screens/admin_login_screen.dart';
 import 'screens/home_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) {
+    try {
+      await AdminFirebasePhotoStorage.initialize();
+    } on FirebaseException catch (error) {
+      debugPrint('Firebase Web initialization failed: ${error.message}');
+    } catch (error) {
+      debugPrint('Firebase Web initialization failed: $error');
+    }
+  }
   runApp(const AdminPanelApp());
 }
 

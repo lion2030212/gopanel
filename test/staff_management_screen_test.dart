@@ -49,6 +49,8 @@ void main() {
                   'jobTitle': 'مشرف',
                   'role': 'supervisor',
                   'roleName': 'مشرف',
+                    'profileImageUrl':
+                      'https://firebasestorage.googleapis.com/v0/b/godrive-d7f94.firebasestorage.app/o/staff-profiles%2F1%2Fstaff.png?alt=media&token=test',
                   'isActive': 1,
                 },
                 {
@@ -130,6 +132,19 @@ void main() {
     expect(find.text('إضافة موظف'), findsOneWidget);
     expect(find.text('محمد علي'), findsOneWidget);
     expect(find.text('ليلى حسن'), findsOneWidget);
+    final staffTile = find.ancestor(
+      of: find.text('محمد علي'),
+      matching: find.byType(ListTile),
+    );
+    expect(
+      find.descendant(of: staffTile, matching: find.byType(Image)),
+      findsOneWidget,
+    );
+    final staffAvatar = tester.widget<CircleAvatar>(
+      find.descendant(of: staffTile, matching: find.byType(CircleAvatar)),
+    );
+    expect(staffAvatar.backgroundImage, isNull);
+    expect(staffAvatar.child, isA<ClipOval>());
     expect(
       tester.getRect(find.text('إضافة موظف')).center.dy,
       closeTo(tester.getRect(find.text('إدارة الموظفين')).center.dy, 1),

@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:image_picker/image_picker.dart';
 
 import '../core/admin_config.dart';
+import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/support_history_tab.dart';
 
@@ -35,6 +38,8 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   String? _error;
   bool _loading = false;
   bool _loadingDetails = false;
+  bool _uploadingDriverPhoto = false;
+  final ImagePicker _imagePicker = ImagePicker();
   bool _hasMore = false;
   int _page = 1;
   int _requestId = 0;
@@ -212,6 +217,115 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       if (mounted) _showMessage('تم تحديث بيانات السائق');
     } on DioException catch (error) {
       _handleRequestError(error, 'تعذر تعديل بيانات السائق');
+    }
+  }
+
+  Future<void> _pickAndUploadDriverPhoto(Map<String, dynamic> profile) async {
+    if (_uploadingDriverPhoto) return;
+    setState(() => _uploadingDriverPhoto = true);
+    String? uploadedUrl;
+    try {
+      final selected = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+        maxWidth: 1600,
+      );
+      if (selected == null) return;
+      uploadedUrl = await AdminFirebasePhotoStorage.upload(
+        client: _dio,
+        apiOptions: _requestOptions,
+        scope: 'driver',
+        objectId: profile['driverId'].toString(),
+        image: selected,
+      );
+      await _dio.put(
+        '/api/admin/drivers/${profile['driverId']}/photo',
+        data: {'profileImageUrl': uploadedUrl},
+        options: _requestOptions,
+      );
+      uploadedUrl = null;
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _requestOptions,
+        scope: 'driver',
+        objectId: profile['driverId'].toString(),
+        value: profile['profileImageUrl']?.toString(),
+      );
+      await _openDriver({'driverId': profile['driverId']});
+      unawaited(_loadDrivers(reset: true));
+      if (mounted) _showMessage('تم تحديث صورة السائق');
+    } on DioException catch (error) {
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _requestOptions,
+        scope: 'driver',
+        objectId: profile['driverId'].toString(),
+        value: uploadedUrl,
+      );
+      _handleRequestError(error, 'تعذر رفع صورة السائق');
+    } on FormatException catch (error) {
+      if (mounted) _showMessage(error.message.toString());
+    } on AdminFirebasePhotoUploadException catch (error) {
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _requestOptions,
+        scope: 'driver',
+        objectId: profile['driverId'].toString(),
+        value: uploadedUrl,
+      );
+      if (mounted) _showMessage(error.userMessage);
+    } on PlatformException catch (error) {
+      if (mounted) _showMessage('تعذر فتح الصورة (${error.code})');
+    } catch (error) {
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _requestOptions,
+        scope: 'driver',
+        objectId: profile['driverId'].toString(),
+        value: uploadedUrl,
+      );
+      if (mounted) _showMessage('تعذر رفع الصورة (${error.runtimeType})');
+    } finally {
+      if (mounted) setState(() => _uploadingDriverPhoto = false);
+    }
+  }
+
+  Future<void> _removeDriverPhoto(Map<String, dynamic> profile) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('حذف صورة السائق؟'),
+        content: const Text('يمكن إضافة صورة جديدة لاحقاً.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('حذف الصورة'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await _dio.delete(
+        '/api/admin/drivers/${profile['driverId']}/photo',
+        options: _requestOptions,
+      );
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _requestOptions,
+        scope: 'driver',
+        objectId: profile['driverId'].toString(),
+        value: profile['profileImageUrl']?.toString(),
+      );
+      await _openDriver({'driverId': profile['driverId']});
+      unawaited(_loadDrivers(reset: true));
+      if (mounted) _showMessage('تم حذف صورة السائق');
+    } on DioException catch (error) {
+      _handleRequestError(error, 'تعذر حذف صورة السائق');
     }
   }
 
@@ -651,7 +765,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             decoration: InputDecoration(
               prefixIcon: const Icon(Icons.search),
               hintText:
-                  'ابحث برقم السائق أو الاسم أو الهاتف أو اللوحة أو رقم الرحلة',
+                  'ابحث برقم السائق أو الاسم أو الهاتف أو الرقم القومي أو الشاسيه أو اللوحة أو رقم الرحلة',
               suffixIcon: _searchController.text.isEmpty
                   ? null
                   : IconButton(
@@ -725,12 +839,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     final name = driver['fullName']?.toString().trim();
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-      leading: CircleAvatar(
-        backgroundImage: _imageProvider(driver['profileImageUrl']),
-        child: driver['profileImageUrl'] == null
-            ? const Icon(Icons.person_outline)
-            : null,
-      ),
+      leading: _driverAvatar(driver['profileImageUrl'], radius: 20),
       title: Text(name?.isNotEmpty == true ? name! : 'بدون اسم',
           maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
@@ -904,14 +1013,34 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        Center(
-          child: CircleAvatar(
-            radius: 42,
-            backgroundImage: _imageProvider(imageUrl),
-            child: imageUrl == null
-                ? const Icon(Icons.person_outline, size: 40)
-                : null,
-          ),
+        Center(child: _driverAvatar(imageUrl, radius: 42)),
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: _uploadingDriverPhoto
+                  ? null
+                  : () => _pickAndUploadDriverPhoto(profile),
+              icon: _uploadingDriverPhoto
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.photo_outlined),
+              label: Text(imageUrl == null ? 'إضافة صورة' : 'استبدال الصورة'),
+            ),
+            if (imageUrl != null)
+              IconButton(
+                tooltip: 'حذف الصورة',
+                onPressed: _uploadingDriverPhoto
+                    ? null
+                    : () => _removeDriverPhoto(profile),
+                icon: const Icon(Icons.delete_outline),
+              ),
+          ],
         ),
         const SizedBox(height: 12),
         _recordFields(profile),
@@ -944,6 +1073,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
           'carModel': profile['carModel'],
           'carColor': profile['carColor'],
           'licensePlate': profile['licensePlate'],
+          'chassisNumber': profile['chassisNumber'],
           'vehicleCategory': profile['vehicleCategory'],
           'driverRating': profile['driverRating'],
           'isOnline': profile['isOnline'],
@@ -1415,8 +1545,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   }
 
   Widget _recordFields(Map<String, dynamic> record) {
-    final entries =
-        record.entries.where((entry) => entry.value != null).toList();
+    final entries = record.entries
+      .where((entry) => entry.value != null && entry.key != 'profileImageUrl')
+      .toList();
     if (entries.isEmpty) return const Text('لا توجد بيانات');
     return Column(
       children: entries
@@ -1486,10 +1617,33 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             child: Text(message, textAlign: TextAlign.center)),
       );
 
-  ImageProvider<Object>? _imageProvider(dynamic value) {
-    final url = value?.toString();
-    if (url == null || url.isEmpty) return null;
-    return NetworkImage(url);
+  Widget _driverAvatar(dynamic value, {required double radius}) {
+    final url = value?.toString().trim();
+    final photoUrl = url == null || url.isEmpty ? null : _resolvePhotoUrl(url);
+    return CircleAvatar(
+      radius: radius,
+      child: photoUrl == null
+          ? Icon(Icons.person_outline, size: radius)
+          : ClipOval(
+              child: Image.network(
+                photoUrl,
+                width: radius * 2,
+                height: radius * 2,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.person_outline,
+                  size: radius,
+                ),
+              ),
+            ),
+    );
+  }
+
+  String _resolvePhotoUrl(String imageUrl) {
+    final uri = Uri.tryParse(imageUrl);
+    if (uri != null && uri.hasScheme) return imageUrl;
+    return Uri.parse(adminApiBaseUrl).resolve(imageUrl).toString();
   }
 
   List<Map<String, dynamic>> _asList(dynamic value) => value is List
@@ -1548,6 +1702,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       'userId': 'رقم المستخدم',
       'driverId': 'رقم السائق',
       'fullName': 'الاسم',
+      'nationalId': 'الرقم القومي',
       'email': 'البريد الإلكتروني',
       'address': 'العنوان',
       'profileImageUrl': 'رابط الصورة',
@@ -1567,6 +1722,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       'carModel': 'طراز المركبة',
       'carColor': 'لون المركبة',
       'licensePlate': 'رقم اللوحة',
+      'chassisNumber': 'رقم الشاسيه',
       'vehicleCategory': 'فئة المركبة',
       'latitude': 'خط العرض',
       'longitude': 'خط الطول',
@@ -1676,6 +1832,8 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
     _controllers = {
       'fullName':
           TextEditingController(text: data['fullName']?.toString() ?? ''),
+      'nationalId':
+          TextEditingController(text: data['nationalId']?.toString() ?? ''),
       'phone': TextEditingController(text: data['phone']?.toString() ?? ''),
       'email': TextEditingController(text: data['email']?.toString() ?? ''),
       'address': TextEditingController(text: data['address']?.toString() ?? ''),
@@ -1685,6 +1843,8 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
           TextEditingController(text: data['carColor']?.toString() ?? ''),
       'licensePlate':
           TextEditingController(text: data['licensePlate']?.toString() ?? ''),
+      'chassisNumber':
+          TextEditingController(text: data['chassisNumber']?.toString() ?? ''),
     };
     _vehicleCategory = data['vehicleCategory']?.toString() ?? 'standard';
   }
@@ -1710,6 +1870,8 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _field('fullName', 'اسم السائق', required: true),
+                _field('nationalId', 'الرقم القومي',
+                    required: true, keyboardType: TextInputType.number),
                 if (!_isEdit)
                   _field('phone', 'رقم الهاتف',
                       required: true, keyboardType: TextInputType.phone),
@@ -1718,6 +1880,7 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
                 _field('carModel', 'طراز المركبة', required: true),
                 _field('carColor', 'لون المركبة', required: true),
                 _field('licensePlate', 'رقم اللوحة', required: true),
+                _field('chassisNumber', 'رقم الشاسيه', required: true),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _vehicleCategory,
@@ -1754,10 +1917,16 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
         keyboardType: keyboardType,
         decoration: InputDecoration(
             labelText: label, border: const OutlineInputBorder()),
-        validator: required
-            ? (value) =>
-                value == null || value.trim().isEmpty ? 'هذا الحقل مطلوب' : null
-            : null,
+        validator: (value) {
+          if (required && (value == null || value.trim().isEmpty)) {
+            return 'هذا الحقل مطلوب';
+          }
+          if (key == 'nationalId' &&
+              !RegExp(r'^\d{14}$').hasMatch(value!.trim())) {
+            return 'يجب أن يتكون الرقم القومي من 14 رقماً';
+          }
+          return null;
+        },
       ),
     );
   }

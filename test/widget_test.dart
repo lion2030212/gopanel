@@ -1231,6 +1231,8 @@ void main() {
       await tester.tap(addButton);
       await tester.pumpAndSettle();
       expect(find.text('إضافة سائق جديد'), findsOneWidget);
+      expect(find.text('الرقم القومي'), findsOneWidget);
+      expect(find.text('رقم الشاسيه'), findsOneWidget);
       await tester.tap(find.text('إلغاء'));
       await tester.pumpAndSettle();
 

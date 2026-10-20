@@ -58,6 +58,8 @@ void main() {
             adminToken: 'staff-token',
             username: 'operator',
             fullName: 'محمد علي',
+            profileImageUrl:
+              'https://firebasestorage.googleapis.com/v0/b/godrive-d7f94.firebasestorage.app/o/staff-profiles%2F12%2Fstaff.png?alt=media&token=test',
             client: client,
             selectedDestination: AdminDestination.driverMap,
             permissions: const {'map.view'},
@@ -71,6 +73,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('مرحبًا، محمد'), findsOneWidget);
+      expect(find.byType(Image), findsOneWidget);
       expect(find.text(entry.rating.toStringAsFixed(1)), findsOneWidget);
       final starsFinder = find.byKey(const ValueKey('admin-rating-stars'));
       final filledStar = tester.widget<Icon>(find

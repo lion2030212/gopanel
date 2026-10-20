@@ -1,0 +1,28 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function validImage() {
+      return request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function canManagePhoto(scope, objectId) {
+      return request.auth != null
+        && request.auth.token.adminPhotoScope == scope
+        && request.auth.token.adminPhotoObjectId == objectId;
+    }
+
+    match /staff-profiles/{staffId}/{fileName} {
+      allow read: if true;
+      allow create, update: if canManagePhoto('staff', staffId) && validImage();
+      allow delete: if canManagePhoto('staff', staffId);
+    }
+
+    match /driver-profiles/{driverId}/{fileName} {
+      allow read: if true;
+      allow create, update: if canManagePhoto('driver', driverId) && validImage();
+      allow delete: if canManagePhoto('driver', driverId);
+    }
+  }
+}

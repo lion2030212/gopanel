@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../core/admin_config.dart';
+import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/support_history_tab.dart';
 
@@ -193,6 +195,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     final staff = _selectedStaff;
     if (staff == null || !_canEditStaff(staff)) return;
     setState(() => _uploadingPhoto = true);
+    String? uploadedUrl;
     try {
       final selected = await _imagePicker.pickImage(
         source: ImageSource.gallery,
@@ -200,24 +203,59 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         maxWidth: 1600,
       );
       if (selected == null) return;
-      final formData = FormData.fromMap({
-        'photo': MultipartFile.fromBytes(
-          await selected.readAsBytes(),
-          filename: selected.name,
-          contentType: MultipartFile.lookupMediaType(selected.name),
-        ),
-      });
+      uploadedUrl = await AdminFirebasePhotoStorage.upload(
+        client: _dio,
+        apiOptions: _options,
+        scope: 'staff',
+        objectId: staff['id'].toString(),
+        image: selected,
+      );
       await _dio.put(
         '/api/admin/staff/${staff['id']}/photo',
-        data: formData,
+        data: {'profileImageUrl': uploadedUrl},
         options: _options,
+      );
+      uploadedUrl = null;
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _options,
+        scope: 'staff',
+        objectId: staff['id'].toString(),
+        value: staff['profileImageUrl']?.toString(),
       );
       await _refreshSelectedStaff();
       if (mounted) _showMessage('تم تحديث صورة الموظف');
     } on DioException catch (error) {
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _options,
+        scope: 'staff',
+        objectId: staff['id'].toString(),
+        value: uploadedUrl,
+      );
       _handleError(error, 'تعذر رفع صورة الموظف');
-    } catch (_) {
-      if (mounted) _showMessage('تعذر اختيار الصورة');
+    } on FormatException catch (error) {
+      if (mounted) _showMessage(error.message.toString());
+    } on AdminFirebasePhotoUploadException catch (error) {
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _options,
+        scope: 'staff',
+        objectId: staff['id'].toString(),
+        value: uploadedUrl,
+      );
+      if (mounted) _showMessage(error.userMessage);
+    } on PlatformException catch (error) {
+      if (mounted) _showMessage('تعذر فتح الصورة (${error.code})');
+    } catch (error) {
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _options,
+        scope: 'staff',
+        objectId: staff['id'].toString(),
+        value: uploadedUrl,
+      );
+      if (mounted) _showMessage('تعذر رفع الصورة (${error.runtimeType})');
     } finally {
       if (mounted) setState(() => _uploadingPhoto = false);
     }
@@ -252,6 +290,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         '/api/admin/staff/${staff['id']}/photo',
         options: _options,
       );
+      await AdminFirebasePhotoStorage.deleteDownloadUrl(
+        client: _dio,
+        apiOptions: _options,
+        scope: 'staff',
+        objectId: staff['id'].toString(),
+        value: staff['profileImageUrl']?.toString(),
+      );
       await _refreshSelectedStaff();
       if (mounted) _showMessage('تم حذف الصورة');
     } on DioException catch (error) {
@@ -265,14 +310,36 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     return active && !isCurrent;
   }
 
-  ImageProvider? _staffImageProvider(Object? imageUrl) {
+  String? _staffPhotoUrl(Object? imageUrl) {
     if (imageUrl == null || imageUrl.toString().isEmpty) return null;
     final value = imageUrl.toString();
     final uri = Uri.tryParse(value);
-    final resolved = uri?.hasScheme == true
+    return uri?.hasScheme == true
         ? value
         : Uri.parse(adminApiBaseUrl).resolve(value).toString();
-    return NetworkImage(resolved);
+  }
+
+  Widget _staffAvatar(
+    Object? imageUrl, {
+    required double radius,
+    required Widget placeholder,
+  }) {
+    final photoUrl = _staffPhotoUrl(imageUrl);
+    return CircleAvatar(
+      radius: radius,
+      child: photoUrl == null
+          ? placeholder
+          : ClipOval(
+              child: Image.network(
+                photoUrl,
+                width: radius * 2,
+                height: radius * 2,
+                fit: BoxFit.cover,
+                webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+                errorBuilder: (_, __, ___) => placeholder,
+              ),
+            ),
+    );
   }
 
   Future<void> _resetPassword(Map<String, dynamic> staff) async {
@@ -459,10 +526,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                       child: ListTile(
                         onTap: () => setState(() =>
                             _selectedStaff = Map<String, dynamic>.from(staff)),
-                        leading: CircleAvatar(
-                          backgroundImage:
-                              _staffImageProvider(staff['profileImageUrl']),
-                          child: Icon(active
+                        leading: _staffAvatar(
+                          staff['profileImageUrl'],
+                          radius: 20,
+                          placeholder: Icon(active
                               ? Icons.badge_outlined
                               : Icons.person_off_outlined),
                         ),
@@ -557,12 +624,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           Center(
-            child: CircleAvatar(
+            child: _staffAvatar(
+              imageUrl,
               radius: 48,
-              backgroundImage: _staffImageProvider(imageUrl),
-              child: _staffImageProvider(imageUrl) == null
-                  ? const Icon(Icons.person_outline, size: 48)
-                  : null,
+              placeholder: const Icon(Icons.person_outline, size: 48),
             ),
           ),
           if (canEdit) ...[
@@ -643,11 +708,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                     onPressed: _handleDashboardBack,
                     icon: const Icon(Icons.arrow_back),
                   ),
-                  CircleAvatar(
-                    backgroundImage: _staffImageProvider(imageUrl),
-                    child: _staffImageProvider(imageUrl) == null
-                        ? const Icon(Icons.badge_outlined)
-                        : null,
+                  _staffAvatar(
+                    imageUrl,
+                    radius: 20,
+                    placeholder: const Icon(Icons.badge_outlined),
                   ),
                   const SizedBox(width: 12),
                   Expanded(

@@ -156,13 +156,20 @@ class _AdminDrawerState extends State<AdminDrawer> {
                         backgroundColor: Theme.of(context)
                             .colorScheme
                             .surfaceContainerHighest,
-                        backgroundImage:
-                            widget.profileImageUrl?.isNotEmpty == true
-                                ? NetworkImage(widget.profileImageUrl!)
-                                : null,
-                        child: widget.profileImageUrl?.isNotEmpty == true
-                            ? null
-                            : const Icon(Icons.person_outline, size: 34),
+                        child: widget.profileImageUrl?.trim().isNotEmpty == true
+                          ? ClipOval(
+                            child: Image.network(
+                              widget.profileImageUrl!.trim(),
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                              webHtmlElementStrategy:
+                                WebHtmlElementStrategy.prefer,
+                              errorBuilder: (_, __, ___) =>
+                                const Icon(Icons.person_outline, size: 34),
+                            ),
+                            )
+                          : const Icon(Icons.person_outline, size: 34),
                       ),
                       const SizedBox(height: 8),
                       Text(
