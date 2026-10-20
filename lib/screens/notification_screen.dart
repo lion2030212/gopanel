@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
-import '../core/admin_config.dart';
+import '../core/admin_api_client.dart';
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({
@@ -42,7 +42,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: widget.onSessionExpired,
+        );
   }
 
   @override

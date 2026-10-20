@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 
-import '../core/admin_config.dart';
+import '../core/admin_api_client.dart';
 import 'coupon_management_screen.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/support_history_tab.dart';
@@ -66,7 +66,10 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: widget.onSessionExpired,
+        );
     unawaited(_loadRiders(reset: true));
   }
 

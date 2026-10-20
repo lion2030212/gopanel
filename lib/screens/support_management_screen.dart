@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io_client;
 
+import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 
 class SupportManagementScreen extends StatefulWidget {
@@ -75,7 +76,10 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: widget.onSessionExpired,
+        );
     unawaited(_loadItems());
     _connectSocket();
   }
@@ -255,7 +259,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
           .map((message) => Map<String, dynamic>.from(message))
           .toList();
       if (!_isCurrentDetailRequest(id, activeRequestId)) return;
-        final shouldFollowLatest =
+      final shouldFollowLatest =
           followLatest || _loadingDetail || _isNearLatestMessage();
       setState(() {
         final detail = data[widget.ticketsMode ? 'ticket' : 'conversation'];

@@ -32,6 +32,14 @@ class _AdminPanelAppState extends State<AdminPanelApp> {
   AdminSession? _adminSession;
   String? _loginMessage;
 
+  void _logout(String? message) {
+    if (!mounted || _adminSession == null) return;
+    setState(() {
+      _adminSession = null;
+      _loginMessage = message;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -55,10 +63,7 @@ class _AdminPanelAppState extends State<AdminPanelApp> {
             )
           : HomeScreen(
               adminSession: _adminSession!,
-              onLogout: ([message]) => setState(() {
-                _adminSession = null;
-                _loginMessage = message;
-              }),
+              onLogout: _logout,
             ),
     );
   }

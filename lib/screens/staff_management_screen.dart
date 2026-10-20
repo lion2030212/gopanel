@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
@@ -52,7 +53,10 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: widget.onSessionExpired,
+        );
     unawaited(_load());
   }
 

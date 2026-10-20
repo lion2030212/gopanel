@@ -4,7 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
 
-import '../core/admin_config.dart';
+import '../core/admin_api_client.dart';
 
 class CouponManagementScreen extends StatefulWidget {
   const CouponManagementScreen({
@@ -54,7 +54,10 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: widget.onSessionExpired,
+        );
     unawaited(_loadCoupons(reset: true));
   }
 

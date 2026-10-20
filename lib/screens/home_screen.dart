@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io_client;
 
+import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_session.dart';
 import '../core/driver_marker_presentation.dart';
@@ -40,7 +41,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  final Dio _dio = Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+  late final Dio _dio;
   final Map<int, _DriverLocation> _drivers = {};
   final Map<int, _RiderLocation> _riders = {};
   final Map<int, _ActiveRide> _activeRides = {};
@@ -72,6 +73,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _dio = createAdminApiClient(
+      onSessionExpired: widget.onLogout,
+    );
     _freshnessTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => unawaited(_loadDrivers()),
@@ -85,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _freshnessTimer?.cancel();
     _socket?.dispose();
+    _dio.close(force: true);
     _mapHoverListener?.dispose();
     _mapController?.dispose();
     _markerNotifier.dispose();
@@ -199,6 +204,11 @@ class _HomeScreenState extends State<HomeScreen> {
           .build(),
     );
     _socket = socket;
+    socket.on('admin_session_invalidated', (payload) {
+      if (!mounted) return;
+      final message = payload is Map ? payload['message']?.toString() : null;
+      widget.onLogout(message ?? 'جلسة الإدارة غير صالحة');
+    });
     socket.on('driver_location_updated', (payload) {
       if (payload is Map) _updateDriver(payload);
     });
@@ -229,7 +239,14 @@ class _HomeScreenState extends State<HomeScreen> {
         unawaited(_refreshSupportUnreadTicketCount());
       }
     });
-    socket.onConnectError((_) {
+    socket.onConnectError((error) {
+      final errorMessage = error.toString();
+      if (errorMessage.contains('ADMIN_SESSION_REPLACED') ||
+          errorMessage.contains('ADMIN_ACCOUNT_DISABLED') ||
+          errorMessage.contains('ADMIN_SESSION_INVALID')) {
+        widget.onLogout('جلسة الإدارة غير صالحة');
+        return;
+      }
       if (mounted) setState(() => _mapError = 'تعذر الاتصال بتحديثات المواقع');
     });
     socket.connect();
@@ -753,20 +770,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       final position = markerId == null
                           ? null
                           : _markerScreenPositions[markerId];
-                      final cardWidth =
-                          math.max(0.0, math.min(300.0, constraints.maxWidth - 24));
+                      final cardWidth = math.max(
+                          0.0, math.min(300.0, constraints.maxWidth - 24));
                       final cardLeft = position == null
                           ? 12.0
-                          : (position.dx + 20).clamp(
-                              12.0,
-                              math.max(12.0, constraints.maxWidth - cardWidth - 12),
-                            ).toDouble();
+                          : (position.dx + 20)
+                              .clamp(
+                                12.0,
+                                math.max(12.0,
+                                    constraints.maxWidth - cardWidth - 12),
+                              )
+                              .toDouble();
                       final cardTop = position == null
                           ? 12.0
-                          : (position.dy + 20).clamp(
-                              12.0,
-                              math.max(12.0, constraints.maxHeight - 190),
-                            ).toDouble();
+                          : (position.dy + 20)
+                              .clamp(
+                                12.0,
+                                math.max(12.0, constraints.maxHeight - 190),
+                              )
+                              .toDouble();
                       return Stack(
                         children: [
                           GoogleMap(

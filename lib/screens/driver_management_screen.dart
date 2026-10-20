@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:image_picker/image_picker.dart';
 
+import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
@@ -68,7 +69,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: widget.onSessionExpired,
+        );
     unawaited(_loadDrivers(reset: true));
   }
 
@@ -1546,8 +1550,8 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
 
   Widget _recordFields(Map<String, dynamic> record) {
     final entries = record.entries
-      .where((entry) => entry.value != null && entry.key != 'profileImageUrl')
-      .toList();
+        .where((entry) => entry.value != null && entry.key != 'profileImageUrl')
+        .toList();
     if (entries.isEmpty) return const Text('لا توجد بيانات');
     return Column(
       children: entries
@@ -1722,6 +1726,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       'carModel': 'طراز المركبة',
       'carColor': 'لون المركبة',
       'licensePlate': 'رقم اللوحة',
+      'driverLicenseNumber': 'رقم رخصة القيادة',
       'chassisNumber': 'رقم الشاسيه',
       'vehicleCategory': 'فئة المركبة',
       'latitude': 'خط العرض',
@@ -1834,6 +1839,8 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
           TextEditingController(text: data['fullName']?.toString() ?? ''),
       'nationalId':
           TextEditingController(text: data['nationalId']?.toString() ?? ''),
+      'driverLicenseNumber': TextEditingController(
+          text: data['driverLicenseNumber']?.toString() ?? ''),
       'phone': TextEditingController(text: data['phone']?.toString() ?? ''),
       'email': TextEditingController(text: data['email']?.toString() ?? ''),
       'address': TextEditingController(text: data['address']?.toString() ?? ''),
@@ -1872,6 +1879,7 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
                 _field('fullName', 'اسم السائق', required: true),
                 _field('nationalId', 'الرقم القومي',
                     required: true, keyboardType: TextInputType.number),
+                _field('driverLicenseNumber', 'رقم رخصة القيادة'),
                 if (!_isEdit)
                   _field('phone', 'رقم الهاتف',
                       required: true, keyboardType: TextInputType.phone),
@@ -1915,6 +1923,14 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
       child: TextFormField(
         controller: _controllers[key],
         keyboardType: keyboardType,
+        inputFormatters: key == 'nationalId'
+            ? [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(20),
+              ]
+            : key == 'driverLicenseNumber'
+                ? [LengthLimitingTextInputFormatter(50)]
+                : null,
         decoration: InputDecoration(
             labelText: label, border: const OutlineInputBorder()),
         validator: (value) {
@@ -1922,8 +1938,8 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
             return 'هذا الحقل مطلوب';
           }
           if (key == 'nationalId' &&
-              !RegExp(r'^\d{14}$').hasMatch(value!.trim())) {
-            return 'يجب أن يتكون الرقم القومي من 14 رقماً';
+              !RegExp(r'^\d{1,20}$').hasMatch(value!.trim())) {
+            return 'أدخل من رقم إلى 20 رقماً';
           }
           return null;
         },

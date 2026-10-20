@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
-import '../core/admin_config.dart';
+import '../core/admin_api_client.dart';
 import '../core/admin_session.dart';
 
 enum AdminDestination {
@@ -61,7 +61,10 @@ class _AdminDrawerState extends State<AdminDrawer> {
   @override
   void initState() {
     super.initState();
-    _dio = widget.client ?? Dio(BaseOptions(baseUrl: adminApiBaseUrl));
+    _dio = widget.client ??
+        createAdminApiClient(
+          onSessionExpired: (_) => widget.onLogout(),
+        );
     _loadRating();
   }
 
@@ -157,19 +160,20 @@ class _AdminDrawerState extends State<AdminDrawer> {
                             .colorScheme
                             .surfaceContainerHighest,
                         child: widget.profileImageUrl?.trim().isNotEmpty == true
-                          ? ClipOval(
-                            child: Image.network(
-                              widget.profileImageUrl!.trim(),
-                              width: 68,
-                              height: 68,
-                              fit: BoxFit.cover,
-                              webHtmlElementStrategy:
-                                WebHtmlElementStrategy.prefer,
-                              errorBuilder: (_, __, ___) =>
-                                const Icon(Icons.person_outline, size: 34),
-                            ),
-                            )
-                          : const Icon(Icons.person_outline, size: 34),
+                            ? ClipOval(
+                                child: Image.network(
+                                  widget.profileImageUrl!.trim(),
+                                  width: 68,
+                                  height: 68,
+                                  fit: BoxFit.cover,
+                                  webHtmlElementStrategy:
+                                      WebHtmlElementStrategy.prefer,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.person_outline,
+                                      size: 34),
+                                ),
+                              )
+                            : const Icon(Icons.person_outline, size: 34),
                       ),
                       const SizedBox(height: 8),
                       Text(

@@ -1002,6 +1002,7 @@ void main() {
               'driverId': 4,
               'fullName': 'محمد علي',
               'phone': '+201000000000',
+              'driverLicenseNumber': 'DL-123',
               'isActive': 1,
               'accountStatus': 'active',
             },
@@ -1062,6 +1063,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('محمد علي'));
     await tester.pumpAndSettle();
+    expect(find.text('رقم رخصة القيادة'), findsOneWidget);
     final walletTab = find.byType(Tab).at(3);
     await tester.ensureVisible(walletTab);
     await tester.tap(walletTab);
@@ -1108,12 +1110,24 @@ void main() {
     for (final width in [1024.0, 390.0]) {
       tester.view.physicalSize = Size(width, 844);
       final navigationKey = GlobalKey<DashboardNavigationState>();
+      Map<String, dynamic>? createdDriver;
       final driverClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
       driverClient.interceptors.add(InterceptorsWrapper(
-        onRequest: (options, handler) => handler.resolve(Response(
-          requestOptions: options,
-          data: {'drivers': [], 'total': 0},
-        )),
+        onRequest: (options, handler) {
+          if (options.path == '/api/admin/drivers' &&
+              options.method == 'POST') {
+            createdDriver = Map<String, dynamic>.from(options.data as Map);
+            handler.resolve(Response(
+              requestOptions: options,
+              data: {'success': true, 'driverId': 4},
+            ));
+            return;
+          }
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {'drivers': [], 'total': 0},
+          ));
+        },
       ));
       final riderClient = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
       riderClient.interceptors.add(InterceptorsWrapper(
@@ -1232,8 +1246,33 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('إضافة سائق جديد'), findsOneWidget);
       expect(find.text('الرقم القومي'), findsOneWidget);
+      expect(find.text('رقم رخصة القيادة'), findsOneWidget);
       expect(find.text('رقم الشاسيه'), findsOneWidget);
-      await tester.tap(find.text('إلغاء'));
+      final nationalIdField = find.byType(TextFormField).at(1);
+      await tester.ensureVisible(nationalIdField);
+      await tester.enterText(nationalIdField, '123456789012345678901');
+      expect(
+        tester.widget<TextFormField>(nationalIdField).controller!.text.length,
+        20,
+      );
+      await tester.enterText(nationalIdField, '1');
+      Future<void> enterField(int index, String value) async {
+        final field = find.byType(TextFormField).at(index);
+        await tester.ensureVisible(field);
+        await tester.enterText(field, value);
+      }
+
+      await enterField(0, 'محمد علي');
+      await enterField(2, 'DL-123');
+      await enterField(3, '+201000000000');
+      await enterField(6, 'سيدان');
+      await enterField(7, 'أبيض');
+      await enterField(8, 'ABC-123');
+      await enterField(9, 'CHASSIS-41');
+      await tester.tap(find.text('إنشاء'));
+      await tester.pumpAndSettle();
+      expect(createdDriver?['nationalId'], '1');
+      expect(createdDriver?['driverLicenseNumber'], 'DL-123');
       await tester.pumpAndSettle();
 
       navigationKey.currentState!.pushNamed(DashboardNavigation.ridersRoute);
