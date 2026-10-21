@@ -23,6 +23,7 @@ import 'notification_screen.dart';
 import 'rider_management_screen.dart';
 import 'ride_history_screen.dart';
 import 'staff_management_screen.dart';
+import 'admin_finance_screen.dart';
 import 'support_management_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -642,6 +643,8 @@ class _HomeScreenState extends State<HomeScreen> {
           DashboardNavigation.adminSettingsRoute,
         AdminDestination.staffManagement =>
           DashboardNavigation.staffManagementRoute,
+        AdminDestination.financialManagement =>
+          DashboardNavigation.financialManagementRoute,
         AdminDestination.supportConversations =>
           DashboardNavigation.supportConversationsRoute,
         AdminDestination.supportTickets =>
@@ -678,6 +681,8 @@ class _HomeScreenState extends State<HomeScreen> {
           widget.adminSession.can('settings.manage'),
         AdminDestination.staffManagement =>
           widget.adminSession.can('staff.manage'),
+        AdminDestination.financialManagement =>
+          widget.adminSession.can('finance.reports.read'),
         AdminDestination.supportConversations =>
           widget.adminSession.can('support.conversations'),
         AdminDestination.supportTickets =>
@@ -713,6 +718,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                     routeName.startsWith(
                                         '${DashboardNavigation.staffManagementRoute}/')
                                 ? AdminDestination.staffManagement
+                                : routeName == DashboardNavigation
+                                      .financialManagementRoute ||
+                                    routeName.startsWith(
+                                      '${DashboardNavigation.financialManagementRoute}/')
+                                  ? AdminDestination.financialManagement
                                 : routeName ==
                                             DashboardNavigation
                                                 .supportConversationsRoute ||
@@ -904,6 +914,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               widget.adminSession.can('support.conversations'),
                           canViewTickets:
                               widget.adminSession.can('support.tickets'),
+                          onSessionExpired: widget.onLogout,
+                        ),
+                  if (widget.adminSession.can('finance.reports.read'))
+                    DashboardNavigation.financialManagementRoute: (_) =>
+                        AdminFinanceScreen(
+                          adminToken: widget.adminSession.token,
                           onSessionExpired: widget.onLogout,
                         ),
                 },

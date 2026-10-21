@@ -1511,6 +1511,10 @@ void main() {
           'paymentStatus': 'pending',
           'cashReceived': null,
           'cancellationReason': status == 'cancelled' ? 'admin_free' : null,
+          'cancelledByName': status == 'cancelled' ? 'موظف الإدارة' : null,
+          'cancelledByRole': status == 'cancelled' ? 'supervisor' : null,
+          'completedByName': status == 'completed' ? 'مدير النظام' : null,
+          'completedByRole': status == 'completed' ? 'manager' : null,
           'canReverseSettlement': status == 'completed' && !settlementReversed,
           'riderRefundAmount': status == 'completed' ? 50 : 0,
           'settlementReversedAt':
@@ -1675,6 +1679,7 @@ void main() {
 
     await tester.tap(find.text('رحلة #41'));
     await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.arrow_back), findsOneWidget);
     expect(find.text('محمد راكب'), findsOneWidget);
     expect(find.text('أحمد سائق'), findsOneWidget);
     await tester.scrollUntilVisible(
@@ -1698,11 +1703,12 @@ void main() {
       isTrue,
     );
     await tester.scrollUntilVisible(
-      find.text('سبب الإلغاء'),
+      find.text('منفذ إلغاء الرحلة'),
       200,
       scrollable: find.byType(Scrollable).last,
     );
-    expect(find.text('سبب الإلغاء'), findsOneWidget);
+    expect(find.text('موظف الإدارة'), findsOneWidget);
+    expect(find.text('مشرف'), findsOneWidget);
     expect(find.text('إلغاء الرحلة مجانًا'), findsNothing);
     expect(find.text('إنهاء الرحلة'), findsNothing);
     ScaffoldMessenger.of(tester.element(find.byType(RideHistoryScreen)))
@@ -1732,6 +1738,13 @@ void main() {
     await tester.tap(find.text('رحلة #52'));
     await tester.pumpAndSettle();
     expect(find.text('عكس التسوية'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('منفذ إنهاء الرحلة'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('مدير النظام'), findsOneWidget);
+    expect(find.text('مدير'), findsOneWidget);
     await tester.tap(find.text('عكس التسوية'));
     await tester.pumpAndSettle();
     expect(find.textContaining('50 ج.م'), findsOneWidget);

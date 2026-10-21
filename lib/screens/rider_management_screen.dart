@@ -895,7 +895,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
             child: IconButton(
               tooltip: 'العودة للقائمة',
               onPressed: _handleDashboardBack,
-              icon: const Icon(Icons.arrow_forward),
+              icon: const Icon(Icons.arrow_back),
             ),
           ),
           if (_error != null)

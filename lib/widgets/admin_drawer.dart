@@ -14,6 +14,7 @@ enum AdminDestination {
   notifications,
   adminSettings,
   staffManagement,
+  financialManagement,
   supportConversations,
   supportTickets,
 }
@@ -343,6 +344,15 @@ class _AdminDrawerState extends State<AdminDrawer> {
                               AdminDestination.staffManagement,
                           onTap: () => onDestinationSelected(
                               AdminDestination.staffManagement),
+                        ),
+                      if (_can('finance.reports.read'))
+                        ListTile(
+                          leading: const Icon(Icons.account_balance_wallet_outlined),
+                          title: const Text('الإدارة المالية'),
+                          selected: selectedDestination ==
+                              AdminDestination.financialManagement,
+                          onTap: () => onDestinationSelected(
+                              AdminDestination.financialManagement),
                         ),
                     ],
                   ),

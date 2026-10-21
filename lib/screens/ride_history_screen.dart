@@ -407,6 +407,15 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
         _ => status,
       };
 
+  String _adminRoleLabel(Object? role) => switch (role?.toString()) {
+        'employee' => 'موظف',
+        'supervisor' => 'مشرف',
+        'assistant_manager' => 'مساعد المدير',
+        'manager' => 'مدير',
+        null => 'غير متوفر',
+        final value => value,
+      };
+
   String _displayValue(Object? value) {
     if (value == null || value.toString().isEmpty) return 'غير متوفر';
     if (value is DateTime) return _formatDate(value);
@@ -440,7 +449,19 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
         MapEntry('تاريخ الوصول', ride['arrivedAt']),
         MapEntry('تاريخ البدء', ride['startedAt']),
         MapEntry('تاريخ الإكمال', ride['completedAt']),
+        MapEntry('منفذ إنهاء الرحلة', ride['completedByName']),
+        MapEntry(
+            'رتبة منفذ الإنهاء',
+            ride['completedByRole'] == null
+                ? null
+                : _adminRoleLabel(ride['completedByRole'])),
         MapEntry('تاريخ الإلغاء', ride['cancelledAt']),
+        MapEntry('منفذ إلغاء الرحلة', ride['cancelledByName']),
+        MapEntry(
+            'رتبة منفذ الإلغاء',
+            ride['cancelledByRole'] == null
+                ? null
+                : _adminRoleLabel(ride['cancelledByRole'])),
         MapEntry('الأجرة', ride['fare'] == null ? null : '${ride['fare']} ج.م'),
         MapEntry('المسافة',
             ride['distance'] == null ? null : '${ride['distance']} كم'),
@@ -754,7 +775,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                         tooltip: 'العودة إلى السجل',
                         onPressed:
                             _submittingAction ? null : _handleDashboardBack,
-                        icon: const Icon(Icons.arrow_forward),
+                        icon: const Icon(Icons.arrow_back),
                       ),
                     Text(
                       _selectedRideId == null

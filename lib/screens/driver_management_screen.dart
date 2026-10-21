@@ -899,7 +899,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               alignment: AlignmentDirectional.centerStart,
               child: IconButton(
                   onPressed: () => setState(() => _details = null),
-                  icon: const Icon(Icons.arrow_forward))),
+                  icon: const Icon(Icons.arrow_back))),
           if (_error != null)
             _errorBanner(_error!)
           else

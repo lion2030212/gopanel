@@ -190,7 +190,31 @@ void main() {
     expect(find.text('إدارة الشكاوى'), findsNothing);
     expect(find.text('إرسال تنبيهات'), findsNothing);
     expect(find.text('إدارة الموظفين'), findsNothing);
+    expect(find.text('الإدارة المالية'), findsNothing);
     expect(find.text('الإدارة والتحكم'), findsNothing);
+  });
+
+  testWidgets('financial management drawer entry requires finance permission',
+      (tester) async {
+    final scaffoldKey = GlobalKey<ScaffoldState>();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        key: scaffoldKey,
+        drawer: AdminDrawer(
+          selectedDestination: AdminDestination.driverMap,
+          permissions: const {'map.view', 'finance.reports.read'},
+          onDestinationSelected: (_) {},
+          onLogout: () {},
+        ),
+        body: const SizedBox.expand(),
+      ),
+    ));
+
+    scaffoldKey.currentState!.openDrawer();
+    await tester.pumpAndSettle();
+
+    expect(find.text('الإدارة المالية'), findsOneWidget);
+    expect(find.text('إدارة الموظفين'), findsNothing);
   });
 
   testWidgets('admin drawer uses a compact width', (tester) async {

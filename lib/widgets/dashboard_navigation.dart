@@ -57,6 +57,7 @@ class DashboardNavigation extends StatefulWidget {
   static const String notificationsRoute = '/notifications';
   static const String adminSettingsRoute = '/settings';
   static const String staffManagementRoute = '/staff';
+  static const String financialManagementRoute = '/finance';
   static const String supportConversationsRoute = '/support/conversations';
   static const String supportTicketsRoute = '/support/tickets';
 

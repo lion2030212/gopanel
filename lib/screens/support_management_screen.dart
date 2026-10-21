@@ -659,7 +659,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
                 IconButton(
                   tooltip: 'العودة إلى القائمة',
                   onPressed: showList,
-                  icon: const Icon(Icons.arrow_forward),
+                  icon: const Icon(Icons.arrow_back),
                 ),
               Expanded(
                 child: Text(
