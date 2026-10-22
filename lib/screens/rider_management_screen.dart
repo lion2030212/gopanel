@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../core/admin_api_client.dart';
+import '../core/ride_trace_presentation.dart';
 import 'coupon_management_screen.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/support_history_tab.dart';
+import '../widgets/user_notifications_tab.dart';
 
 class RiderManagementScreen extends StatefulWidget {
   const RiderManagementScreen({
@@ -28,10 +31,17 @@ class RiderManagementScreen extends StatefulWidget {
 class _RiderManagementScreenState extends State<RiderManagementScreen> {
   late final Dio _dio;
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _routeSearchController = TextEditingController();
   Timer? _searchTimer;
   DashboardBackHandler? _dashboardBackHandler;
   List<Map<String, dynamic>> _riders = [];
   Map<String, dynamic>? _details;
+  Map<String, int> _statusCounts = {
+    'all': 0,
+    'active': 0,
+    'inactive': 0,
+    'suspended': 0,
+  };
   String _status = 'all';
   String? _error;
   bool _loading = false;
@@ -40,18 +50,31 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   int _page = 1;
   int _requestId = 0;
   int _detailRequestId = 0;
+  int _routeRequestId = 0;
+  Map<String, dynamic>? _selectedRouteRide;
+  List<RideTracePoint> _routePoints = const [];
+  GoogleMapController? _routeMapController;
+  String? _routeError;
+  String? _routeLoadedRideId;
+  bool _loadingRoute = false;
   String _couponPeriod = 'all';
   DateTimeRange? _couponCustomRange;
   String _rideHistoryPeriod = 'week';
   DateTimeRange? _rideHistoryCustomRange;
+  String _rideHistoryStatus = 'all';
   String _settlementsPeriod = 'week';
   DateTimeRange? _settlementsCustomRange;
   final Set<String> _settlementCategories = {};
   String _activityPeriod = 'week';
   DateTimeRange? _activityCustomRange;
   final Set<String> _activityCategories = {};
+  String _walletPeriod = 'week';
+  DateTimeRange? _walletCustomRange;
+  String _walletMovementType = 'all';
   String _ratingsPeriod = 'week';
   DateTimeRange? _ratingsCustomRange;
+  int? _ratingsStarFilter;
+  String _couponUsageFilter = 'all';
 
   @override
   void didChangeDependencies() {
@@ -78,6 +101,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     _dashboardBackHandler?.unregister(this);
     _searchTimer?.cancel();
     _searchController.dispose();
+    _routeSearchController.dispose();
     super.dispose();
   }
 
@@ -120,10 +144,19 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               .toList()
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? riders.length;
+      final statusCounts = data['counts'];
       setState(() {
         _riders = reset ? riders : [..._riders, ...riders];
         _page = page;
         _hasMore = _riders.length < total;
+        if (statusCounts is Map) {
+          _statusCounts = {
+            'all': (statusCounts['all'] as num?)?.toInt() ?? 0,
+            'active': (statusCounts['active'] as num?)?.toInt() ?? 0,
+            'inactive': (statusCounts['inactive'] as num?)?.toInt() ?? 0,
+            'suspended': (statusCounts['suspended'] as num?)?.toInt() ?? 0,
+          };
+        }
       });
     } on DioException catch (error) {
       if (!mounted || requestId != _requestId) return;
@@ -141,11 +174,18 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     final riderId = rider['riderId'];
     if (riderId == null) return;
     final requestId = ++_detailRequestId;
+    _routeRequestId++;
     setState(() {
       _details = null;
       _loadingDetails = true;
       _error = null;
+      _selectedRouteRide = null;
+      _routePoints = const [];
+      _routeError = null;
+      _routeLoadedRideId = null;
+      _loadingRoute = false;
     });
+    _routeSearchController.clear();
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/admin/riders/$riderId',
@@ -172,10 +212,16 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   bool _handleDashboardBack() {
     if (_details == null && !_loadingDetails) return false;
     _detailRequestId++;
+    _routeRequestId++;
     setState(() {
       _details = null;
       _loadingDetails = false;
       _error = null;
+      _selectedRouteRide = null;
+      _routePoints = const [];
+      _loadingRoute = false;
+      _routeError = null;
+      _routeLoadedRideId = null;
     });
     return true;
   }
@@ -445,21 +491,36 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
             ),
           ),
         ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-          child: SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'all', label: Text('الكل')),
-              ButtonSegment(value: 'active', label: Text('نشط')),
-              ButtonSegment(value: 'inactive', label: Text('غير نشط')),
-              ButtonSegment(value: 'suspended', label: Text('موقوف')),
-            ],
-            selected: {_status},
-            onSelectionChanged: (selection) {
-              setState(() => _status = selection.first);
-              unawaited(_loadRiders(reset: true));
-            },
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth - 40),
+              child: Center(
+                child: SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                        value: 'all',
+                        label: Text('الكل (${_statusCounts['all']})')),
+                    ButtonSegment(
+                        value: 'active',
+                        label: Text('نشط (${_statusCounts['active']})')),
+                    ButtonSegment(
+                        value: 'inactive',
+                        label: Text('غير نشط (${_statusCounts['inactive']})')),
+                    ButtonSegment(
+                        value: 'suspended',
+                        label: Text('موقوف (${_statusCounts['suspended']})')),
+                  ],
+                  selected: {_status},
+                  onSelectionChanged: (selection) {
+                    setState(() => _status = selection.first);
+                    unawaited(_loadRiders(reset: true));
+                  },
+                ),
+              ),
+            ),
           ),
         ),
         if (_error != null) _errorBanner(_error!),
@@ -551,6 +612,31 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       return;
     }
     setState(() => _ratingsPeriod = period);
+  }
+
+  Future<void> _selectWalletPeriod(String period) async {
+    if (period == 'custom') {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final selectedRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(1900),
+        lastDate: DateTime(2100),
+        initialDateRange:
+            _walletCustomRange ?? DateTimeRange(start: today, end: today),
+        helpText: 'اختر مدة المحفظة',
+        cancelText: 'إلغاء',
+        confirmText: 'تطبيق',
+        saveText: 'تطبيق',
+      );
+      if (!mounted || selectedRange == null) return;
+      setState(() {
+        _walletPeriod = period;
+        _walletCustomRange = selectedRange;
+      });
+      return;
+    }
+    setState(() => _walletPeriod = period);
   }
 
   DateTimeRange? _ratingsRange() {
@@ -854,6 +940,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
 
   Widget _groupCategoryFilter({
     required Map<String, String> categories,
+    required Map<String, int> categoryCounts,
+    required int allCount,
     required Set<String> selectedCategories,
     required ValueChanged<String?> onChanged,
   }) =>
@@ -864,14 +952,16 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           child: Row(
             children: [
               FilterChip(
-                label: const Text('كل التصنيفات'),
+                label: Text('كل التصنيفات ($allCount)'),
                 selected: selectedCategories.isEmpty,
                 onSelected: (_) => onChanged(null),
               ),
               for (final entry in categories.entries) ...[
                 const SizedBox(width: 8),
                 FilterChip(
-                  label: Text(entry.value),
+                  label: Text(
+                    '${entry.value} (${categoryCounts[entry.key] ?? 0})',
+                  ),
                   selected: selectedCategories.contains(entry.key),
                   onSelected: (_) => onChanged(entry.key),
                 ),
@@ -919,7 +1009,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         : <String, dynamic>{};
 
     return DefaultTabController(
-      length: 9,
+      length: 11,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -969,6 +1059,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               Tab(text: 'التقييمات'),
               Tab(text: 'الكوبونات'),
               Tab(text: 'النشاط'),
+              Tab(text: 'الإشعارات'),
+              Tab(text: 'مسار الرحلة'),
               Tab(text: 'الشكاوى'),
               Tab(text: 'محادثات خدمة العملاء'),
             ],
@@ -993,6 +1085,11 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                 ),
                 _couponTab(coupons, profileMap),
                 _activityTab(details),
+                UserNotificationsTab(
+                  key: ValueKey('rider-${profileMap['riderId']}'),
+                  notifications: _records(details['notifications']),
+                ),
+                _rideRouteTab(_records(details['rides']), profileMap),
                 SupportHistoryTab(
                   client: _dio,
                   adminToken: widget.adminToken,
@@ -1031,19 +1128,55 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         .where((coupon) => _couponBelongsToRider(coupon, riderId))
         .where((coupon) => _couponValidityOverlaps(coupon, range))
         .toList();
-    final activeCoupons = assigned
+    final allRedemptions = _records(coupons['redemptions']);
+    final assignedRedemptions = allRedemptions.where(
+      (record) => record['reversedAt'] == null,
+    );
+    final usedCouponIds = assignedRedemptions
+        .map((record) => record['couponId']?.toString())
+        .whereType<String>()
+        .toSet();
+    final couponIds = assigned
+        .map((coupon) => coupon['couponId']?.toString())
+        .whereType<String>()
+        .toSet();
+    final allCouponIds = {
+      ...couponIds,
+      ...allRedemptions
+          .map((record) => record['couponId']?.toString())
+          .whereType<String>(),
+    };
+    int usageCount(String filter) => switch (filter) {
+          'used' => usedCouponIds.length,
+          'unused' => assigned
+              .where((coupon) =>
+                  !usedCouponIds.contains(coupon['couponId']?.toString()))
+              .length,
+          _ => allCouponIds.length,
+        };
+    final visibleAssigned = switch (_couponUsageFilter) {
+      'used' => <Map<String, dynamic>>[],
+      _ => assigned
+          .where((coupon) =>
+              !usedCouponIds.contains(coupon['couponId']?.toString()))
+          .toList(),
+    };
+    final activeCoupons = visibleAssigned
         .where((coupon) => _riderCouponStatus(coupon) == 'مفعّل')
         .toList();
-    final scheduledOrExpiredCoupons = assigned
+    final scheduledOrExpiredCoupons = visibleAssigned
         .where((coupon) =>
             _couponIsActive(coupon['isActive']) &&
             _riderCouponStatus(coupon) != 'مفعّل')
         .toList();
-    final disabledCoupons = assigned
+    final disabledCoupons = visibleAssigned
         .where((coupon) => !_couponIsActive(coupon['isActive']))
         .toList();
-    final redemptions = _records(coupons['redemptions'])
+    final redemptions = allRedemptions
         .where((record) => _couponDateMatches(range, record['redeemedAt']))
+        .where((record) =>
+            _couponUsageFilter != 'unused' &&
+            (_couponUsageFilter != 'used' || record['reversedAt'] == null))
         .toList();
     final reservations = _records(coupons['reservations'])
         .where((record) => _couponDateMatches(range, record['reservedAt']))
@@ -1088,6 +1221,32 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               ' - ${intl.DateFormat('y/MM/dd').format(_couponCustomRange!.end)}',
             ),
           ),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 12, 8),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              segments: [
+                ButtonSegment(
+                  value: 'all',
+                  label: Text('الكل (${usageCount('all')})'),
+                ),
+                ButtonSegment(
+                  value: 'used',
+                  label: Text('مستخدم (${usageCount('used')})'),
+                ),
+                ButtonSegment(
+                  value: 'unused',
+                  label: Text('غير مستخدم (${usageCount('unused')})'),
+                ),
+              ],
+              selected: {_couponUsageFilter},
+              onSelectionChanged: (selection) {
+                setState(() => _couponUsageFilter = selection.first);
+              },
+            ),
+          ),
+        ),
         const Divider(height: 1),
         Expanded(
           child: !hasRecords
@@ -1275,7 +1434,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     Map<String, dynamic> profile,
   ) {
     final ratingRange = _ratingsRange();
-    final visibleRatings = ratingRange == null
+    final periodRatings = ratingRange == null
         ? <Map<String, dynamic>>[]
         : ratings.where((rating) {
             final date = _ratingDate(rating['createdAt']);
@@ -1283,6 +1442,16 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                 !date.isBefore(ratingRange.start) &&
                 date.isBefore(ratingRange.end);
           }).toList();
+    int? starsFor(Map<String, dynamic> rating) =>
+        int.tryParse(rating['stars']?.toString() ?? '');
+    int ratingCount(int? stars) => stars == null
+        ? periodRatings.length
+        : periodRatings.where((rating) => starsFor(rating) == stars).length;
+    final visibleRatings = _ratingsStarFilter == null
+        ? periodRatings
+        : periodRatings
+            .where((rating) => starsFor(rating) == _ratingsStarFilter)
+            .toList();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -1313,6 +1482,36 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               ' - ${intl.DateFormat('y/MM/dd').format(_ratingsCustomRange!.end)}',
             ),
           ),
+        const SizedBox(height: 8),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Center(
+                child: Row(
+                  children: [
+                    FilterChip(
+                      label: Text('الكل (${ratingCount(null)})'),
+                      selected: _ratingsStarFilter == null,
+                      onSelected: (_) =>
+                          setState(() => _ratingsStarFilter = null),
+                    ),
+                    for (var stars = 1; stars <= 5; stars++) ...[
+                      const SizedBox(width: 8),
+                      FilterChip(
+                        label: Text('$stars نجمة (${ratingCount(stars)})'),
+                        selected: _ratingsStarFilter == stars,
+                        onSelected: (_) =>
+                            setState(() => _ratingsStarFilter = stars),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
         const SizedBox(height: 12),
         Text('سجل التقييمات', style: Theme.of(context).textTheme.titleMedium),
         if (visibleRatings.isEmpty)
@@ -1331,6 +1530,25 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     Map<String, dynamic> profile,
   ) {
     final transactions = _records(wallet['transactions']);
+    final transactionRange =
+        _recordPeriodRange(_walletPeriod, _walletCustomRange);
+    final visibleTransactions = transactionRange == null
+        ? transactions
+        : transactions.where((transaction) {
+            final date = _dateFromRecord(transaction, const ['createdAt']);
+            return date != null &&
+                !date.isBefore(transactionRange.start) &&
+                date.isBefore(transactionRange.end);
+          }).toList();
+    int movementCount(String type) => type == 'all'
+        ? visibleTransactions.length
+        : visibleTransactions
+            .where((transaction) => transaction['transactionType'] == type)
+            .length;
+    final filteredTransactions = visibleTransactions.where((transaction) {
+      return _walletMovementType == 'all' ||
+          transaction['transactionType'] == _walletMovementType;
+    }).toList();
     final debtLimitOverride = profile['riderDebtLimit'];
     final effectiveDebtLimit = profile['effectiveRiderDebtLimit'] ?? '-30.00';
     return Column(
@@ -1365,9 +1583,64 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           ),
         ),
         const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 4),
+          child: DropdownButtonFormField<String>(
+            initialValue: _walletPeriod,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'فترة المحفظة'),
+            items: const [
+              DropdownMenuItem(value: 'day', child: Text('اليوم')),
+              DropdownMenuItem(value: 'week', child: Text('أسبوع')),
+              DropdownMenuItem(value: 'month', child: Text('شهر')),
+              DropdownMenuItem(value: 'custom', child: Text('مدة محددة')),
+              DropdownMenuItem(value: 'all', child: Text('الكل')),
+            ],
+            onChanged: (period) {
+              if (period != null) unawaited(_selectWalletPeriod(period));
+            },
+          ),
+        ),
+        if (_walletPeriod == 'custom' && _walletCustomRange != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              '${intl.DateFormat('y/MM/dd').format(_walletCustomRange!.start)}'
+              ' - ${intl.DateFormat('y/MM/dd').format(_walletCustomRange!.end)}',
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 4),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              segments: [
+                ButtonSegment(
+                  value: 'all',
+                  label: Text('الكل (${movementCount('all')})'),
+                ),
+                ButtonSegment(
+                  value: 'withdrawal',
+                  label: Text('سحب (${movementCount('withdrawal')})'),
+                ),
+                ButtonSegment(
+                  value: 'deposit',
+                  label: Text('إيداع (${movementCount('deposit')})'),
+                ),
+              ],
+              selected: {_walletMovementType},
+              onSelectionChanged: (selection) {
+                setState(() => _walletMovementType = selection.first);
+              },
+            ),
+          ),
+        ),
         Expanded(
-            child:
-                _recordList(transactions, emptyMessage: 'لا توجد حركات محفظة')),
+          child: _recordList(
+            filteredTransactions,
+            emptyMessage: 'لا توجد حركات محفظة ضمن الفترة المحددة',
+          ),
+        ),
       ],
     );
   }
@@ -1437,17 +1710,23 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
 
   Widget _activityTab(Map<String, dynamic> details) {
     final sections = <String, List<dynamic>>{
-      'الإشعارات': _records(details['notifications']),
       'عروض السائقين': _records(details['offers']),
       'محادثات الرحلات': _records(details['chatMessages']),
       'سياسات الإلغاء': _records(details['cancellationPolicies']),
       'أجهزة الإشعارات': _records(details['devices']),
-      'مسارات الموقع': _records(details['locationPoints']),
     };
     final location = details['location'];
     if (location is Map) {
       sections['الموقع الحالي'] = [Map<String, dynamic>.from(location)];
     }
+    final range = _recordPeriodRange(_activityPeriod, _activityCustomRange);
+    final categoryCounts = _groupRecordCounts(
+      sections,
+      period: _activityPeriod,
+      range: range,
+      dateForRecord: _activityRecordDate,
+      keepUndated: true,
+    );
     return Column(
       children: [
         _recordPeriodFilter(
@@ -1461,6 +1740,9 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         ),
         _groupCategoryFilter(
           categories: {for (final key in sections.keys) key: key},
+          categoryCounts: categoryCounts,
+          allCount: categoryCounts.values
+              .fold<int>(0, (total, count) => total + count),
           selectedCategories: _activityCategories,
           onChanged: (category) => setState(() {
             if (category == null) {
@@ -1476,7 +1758,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           child: _groupedRecords(
             sections,
             period: _activityPeriod,
-            range: _recordPeriodRange(_activityPeriod, _activityCustomRange),
+            range: range,
             dateForRecord: _activityRecordDate,
             keepUndated: true,
             selectedCategories: _activityCategories,
@@ -1486,7 +1768,342 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     );
   }
 
+  Widget _rideRouteTab(
+    List<Map<String, dynamic>> rides,
+    Map<String, dynamic> profile,
+  ) {
+    final query = _routeSearchController.text.trim().toLowerCase();
+    final visibleRides = rides.where((ride) {
+      return _routeRideMatchesQuery(ride, profile, query);
+    }).toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 8),
+          child: TextField(
+            controller: _routeSearchController,
+            onChanged: (_) => _routeSearchChanged(rides, profile),
+            textDirection: TextDirection.rtl,
+            decoration: const InputDecoration(
+              labelText: 'رقم الرحلة أو اسم/جوال السائق أو الراكب',
+              prefixIcon: Icon(Icons.search),
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final rideList = _routeRideList(visibleRides);
+              final routeView = _routeMapView();
+              if (constraints.maxWidth >= 800) {
+                return Row(
+                  children: [
+                    SizedBox(width: 300, child: rideList),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: routeView),
+                  ],
+                );
+              }
+              final listHeight =
+                  (constraints.maxHeight * 0.32).clamp(112.0, 190.0);
+              return Column(
+                children: [
+                  SizedBox(height: listHeight, child: rideList),
+                  const Divider(height: 1),
+                  Expanded(child: routeView),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  bool _routeRideMatchesQuery(
+    Map<String, dynamic> ride,
+    Map<String, dynamic> profile,
+    String query,
+  ) {
+    if (query.isEmpty) return true;
+    return [
+      ride['rideId'] ?? ride['id'],
+      profile['fullName'],
+      profile['phone'],
+      ride['driverName'],
+      ride['driverPhone'],
+    ].any((value) => value?.toString().toLowerCase().contains(query) ?? false);
+  }
+
+  void _routeSearchChanged(
+    List<Map<String, dynamic>> rides,
+    Map<String, dynamic> profile,
+  ) {
+    final query = _routeSearchController.text.trim().toLowerCase();
+    final selectedId =
+        (_selectedRouteRide?['rideId'] ?? _selectedRouteRide?['id'])
+            ?.toString();
+    final remainsVisible = rides.any((ride) =>
+        (ride['rideId'] ?? ride['id'])?.toString() == selectedId &&
+        _routeRideMatchesQuery(ride, profile, query));
+    if (selectedId != null && !remainsVisible) {
+      _routeRequestId++;
+      setState(() {
+        _selectedRouteRide = null;
+        _routePoints = const [];
+        _routeLoadedRideId = null;
+        _routeError = null;
+        _loadingRoute = false;
+      });
+      return;
+    }
+    setState(() {});
+  }
+
+  Widget _routeRideList(List<Map<String, dynamic>> rides) {
+    if (rides.isEmpty) {
+      return _emptyState('لا توجد رحلات مطابقة للبحث');
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      itemCount: rides.length,
+      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final ride = rides[index];
+        final rideId = (ride['rideId'] ?? ride['id'])?.toString();
+        return ListTile(
+          dense: true,
+          selected: rideId != null &&
+              rideId ==
+                  (_selectedRouteRide?['rideId'] ?? _selectedRouteRide?['id'])
+                      ?.toString(),
+          selectedTileColor: Theme.of(context).colorScheme.secondaryContainer,
+          leading: const Icon(Icons.route_outlined),
+          title: Text(rideId == null ? 'رحلة' : 'الرحلة $rideId'),
+          subtitle: Text(
+            ride['driverName']?.toString().trim().isNotEmpty == true
+                ? ride['driverName'].toString()
+                : 'السائق غير محدد',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: rideId == null ? null : () => unawaited(_loadRideRoute(ride)),
+        );
+      },
+    );
+  }
+
+  Future<void> _loadRideRoute(Map<String, dynamic> ride) async {
+    final riderId = _details?['profile'] is Map
+        ? (_details!['profile'] as Map)['riderId']
+        : null;
+    final rideId = ride['rideId'] ?? ride['id'];
+    if (riderId == null || rideId == null) return;
+    final rideIdText = rideId.toString();
+    if (_routeLoadedRideId == rideIdText) {
+      setState(() => _selectedRouteRide = ride);
+      return;
+    }
+
+    final requestId = ++_routeRequestId;
+    setState(() {
+      _selectedRouteRide = ride;
+      _routePoints = const [];
+      _routeError = null;
+      _loadingRoute = true;
+      _routeLoadedRideId = null;
+    });
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/admin/riders/$riderId/rides/$rideIdText/route',
+        options: _requestOptions,
+      );
+      if (!mounted || requestId != _routeRequestId) return;
+      final points =
+          RideTracePresentation.parsePoints(response.data?['points']);
+      setState(() {
+        _routePoints = points;
+        _routeLoadedRideId = rideIdText;
+        _loadingRoute = false;
+      });
+      final mapController = _routeMapController;
+      if (mapController != null && points.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _fitRideRoute(mapController, points);
+        });
+      }
+    } on DioException catch (error) {
+      if (!mounted || requestId != _routeRequestId) return;
+      if (error.response?.statusCode == 401) {
+        widget.onSessionExpired(_messageFrom(error, 'جلسة الإدارة غير صالحة'));
+      } else {
+        setState(() {
+          _routeError = _messageFrom(error, 'تعذر تحميل مسار الرحلة');
+        });
+      }
+    } finally {
+      if (mounted && requestId == _routeRequestId) {
+        setState(() => _loadingRoute = false);
+      }
+    }
+  }
+
+  Widget _routeMapView() {
+    final ride = _selectedRouteRide;
+    if (ride == null) return _emptyState('اختر رحلة لعرض مسارها');
+    if (_loadingRoute) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_routeError != null) return _errorBanner(_routeError!);
+    if (_routePoints.isEmpty) {
+      return _emptyState('لا توجد نقاط GPS مسجلة لهذه الرحلة');
+    }
+
+    final points = _routePoints;
+    final waitingStopCount = RideTracePresentation.waitingLocations(points)
+        .where((stop) =>
+            RideTracePresentation.distanceMeters(stop, points.first.position) >
+                30 &&
+            RideTracePresentation.distanceMeters(stop, points.last.position) >
+                30)
+        .length;
+    final markers = RideTracePresentation.markersForRoute(points);
+    final polylines = RideTracePresentation.polylinesForRoute(
+      points,
+      color: Theme.of(context).colorScheme.primary,
+    );
+
+    return Column(
+      children: [
+        _rideRouteSummary(ride, waitingStopCount),
+        Expanded(
+          child: GoogleMap(
+            key: ValueKey('ride-route-${ride['rideId'] ?? ride['id']}'),
+            initialCameraPosition: CameraPosition(
+              target: points.first.position,
+              zoom: 14,
+            ),
+            markers: markers,
+            polylines: polylines,
+            myLocationButtonEnabled: false,
+            onMapCreated: (controller) {
+              _routeMapController = controller;
+              _fitRideRoute(controller, points);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _rideRouteSummary(Map<String, dynamic> ride, int waitingStops) {
+    final distance = double.tryParse(
+      (ride['distance'] ?? ride['traceDistanceKm'])?.toString() ?? '',
+    );
+    final duration = double.tryParse(ride['duration']?.toString() ?? '');
+    final arrivedAt = _routeDate(ride['arrivedAt']);
+    final startedAt = _routeDate(ride['startedAt']);
+    final waitMinutes = arrivedAt == null || startedAt == null
+        ? null
+        : startedAt.difference(arrivedAt).inMinutes;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          _routeMetric('المسافة',
+              distance == null ? '--' : '${distance.toStringAsFixed(2)} كم'),
+          _routeMetric('مدة الرحلة',
+              duration == null ? '--' : '${duration.round()} دقيقة'),
+          _routeMetric(
+              'انتظار الالتقاء',
+              waitMinutes == null || waitMinutes < 0
+                  ? '--'
+                  : '$waitMinutes دقيقة'),
+          _routeMetric('توقفات GPS', '$waitingStops'),
+        ],
+      ),
+    );
+  }
+
+  Widget _routeMetric(String label, String value) => Expanded(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall),
+            const SizedBox(height: 3),
+            Text(value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall),
+          ],
+        ),
+      );
+
+  DateTime? _routeDate(dynamic value) {
+    if (value is DateTime) return value;
+    if (value == null) return null;
+    return DateTime.tryParse(value.toString());
+  }
+
+  void _fitRideRoute(
+      GoogleMapController controller, List<RideTracePoint> points) {
+    if (points.length == 1) {
+      unawaited(controller.animateCamera(CameraUpdate.newLatLngZoom(
+        points.single.position,
+        15,
+      )));
+      return;
+    }
+    final latitudes = points.map((point) => point.position.latitude);
+    final longitudes = points.map((point) => point.position.longitude);
+    final south =
+        latitudes.reduce((first, second) => first < second ? first : second);
+    final north =
+        latitudes.reduce((first, second) => first > second ? first : second);
+    final west =
+        longitudes.reduce((first, second) => first < second ? first : second);
+    final east =
+        longitudes.reduce((first, second) => first > second ? first : second);
+    if (north - south < 0.00001 && east - west < 0.00001) {
+      unawaited(controller.animateCamera(CameraUpdate.newLatLngZoom(
+        points.first.position,
+        15,
+      )));
+      return;
+    }
+    unawaited(controller.animateCamera(CameraUpdate.newLatLngBounds(
+      LatLngBounds(
+        southwest: LatLng(south, west),
+        northeast: LatLng(north, east),
+      ),
+      48,
+    )));
+  }
+
   Widget _settlementsTab(Map<String, dynamic> financialRecords) {
+    final range =
+        _recordPeriodRange(_settlementsPeriod, _settlementsCustomRange);
+    const categories = {
+      'shortfalls': 'عجوزات الرحلات',
+      'shortfallRecoveries': 'استردادات العجوزات',
+      'cancellationFees': 'تسويات رسوم الإلغاء',
+      'cancellationFeeRecoveries': 'تحصيل رسوم الإلغاء',
+      'reversals': 'عكس التسوية',
+      'ledgerEntries': 'دفتر عمولات ورسوم التطبيق',
+    };
+    final categoryCounts = _groupRecordCounts(
+      financialRecords,
+      period: _settlementsPeriod,
+      range: range,
+      dateForRecord: _settlementRecordDate,
+      keepUndated: false,
+    );
     return Column(
       children: [
         _recordPeriodFilter(
@@ -1499,14 +2116,10 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           )),
         ),
         _groupCategoryFilter(
-          categories: const {
-            'shortfalls': 'عجوزات الرحلات',
-            'shortfallRecoveries': 'استردادات العجوزات',
-            'cancellationFees': 'تسويات رسوم الإلغاء',
-            'cancellationFeeRecoveries': 'تحصيل رسوم الإلغاء',
-            'reversals': 'عكس التسوية',
-            'ledgerEntries': 'دفتر عمولات ورسوم التطبيق',
-          },
+          categories: categories,
+          categoryCounts: categoryCounts,
+          allCount: categoryCounts.values
+              .fold<int>(0, (total, count) => total + count),
           selectedCategories: _settlementCategories,
           onChanged: (category) => setState(() {
             if (category == null) {
@@ -1522,8 +2135,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           child: _groupedRecords(
             financialRecords,
             period: _settlementsPeriod,
-            range:
-                _recordPeriodRange(_settlementsPeriod, _settlementsCustomRange),
+            range: range,
             dateForRecord: _settlementRecordDate,
             keepUndated: false,
             selectedCategories: _settlementCategories,
@@ -1557,7 +2169,6 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           'initialEtaArrivalAt',
         ],
       'أجهزة الإشعارات' => const ['createdAt', 'updatedAt'],
-      'مسارات الموقع' => const ['receivedAt', 'capturedAtMs'],
       'الموقع الحالي' => const ['capturedAt', 'updatedAt'],
       _ => const ['createdAt', 'deliveredAt', 'readAt', 'updatedAt'],
     };
@@ -1577,14 +2188,14 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
             selectedCategories.isEmpty ||
             selectedCategories.contains(entry.key))
         .map((entry) {
-          final records = _records(entry.value).where((record) {
-            if (period == 'all') return true;
-            final date = dateForRecord(entry.key, record);
-            if (date == null) return keepUndated;
-            return range != null &&
-                !date.isBefore(range.start) &&
-                date.isBefore(range.end);
-          }).toList();
+          final records = _recordsForPeriod(
+            entry.key,
+            entry.value,
+            period: period,
+            range: range,
+            dateForRecord: dateForRecord,
+            keepUndated: keepUndated,
+          );
           return MapEntry(entry.key, records);
         })
         .where((entry) => entry.value.isNotEmpty)
@@ -1605,6 +2216,42 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     );
   }
 
+  Map<String, int> _groupRecordCounts(
+    Map<String, dynamic> groups, {
+    required String period,
+    required DateTimeRange? range,
+    required DateTime? Function(String, Map<String, dynamic>) dateForRecord,
+    required bool keepUndated,
+  }) =>
+      {
+        for (final entry in groups.entries)
+          entry.key: _recordsForPeriod(
+            entry.key,
+            entry.value,
+            period: period,
+            range: range,
+            dateForRecord: dateForRecord,
+            keepUndated: keepUndated,
+          ).length,
+      };
+
+  List<Map<String, dynamic>> _recordsForPeriod(
+    String group,
+    dynamic values, {
+    required String period,
+    required DateTimeRange? range,
+    required DateTime? Function(String, Map<String, dynamic>) dateForRecord,
+    required bool keepUndated,
+  }) =>
+      _records(values).where((record) {
+        if (period == 'all') return true;
+        final date = dateForRecord(group, record);
+        if (date == null) return keepUndated;
+        return range != null &&
+            !date.isBefore(range.start) &&
+            date.isBefore(range.end);
+      }).toList();
+
   Widget _recordList(List<Map<String, dynamic>> records,
       {String emptyMessage = 'لا توجد سجلات'}) {
     if (records.isEmpty) return _emptyState(emptyMessage);
@@ -1621,7 +2268,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     List<Map<String, dynamic>> chatMessages,
   ) {
     final rideRange = _rideHistoryRange();
-    final visibleRides = rideRange == null
+    final periodRides = rideRange == null
         ? rides
         : rides.where((ride) {
             final date = _rideHistoryDate(ride['createdAt']);
@@ -1629,6 +2276,18 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                 !date.isBefore(rideRange.start) &&
                 date.isBefore(rideRange.end);
           }).toList();
+    final rideStatusCounts = {
+      'all': periodRides.length,
+      'completed':
+          periodRides.where((ride) => ride['status'] == 'completed').length,
+      'cancelled':
+          periodRides.where((ride) => ride['status'] == 'cancelled').length,
+    };
+    final visibleRides = _rideHistoryStatus == 'all'
+        ? periodRides
+        : periodRides
+            .where((ride) => ride['status'] == _rideHistoryStatus)
+            .toList();
     final messagesByRideId = <String, List<Map<String, dynamic>>>{};
     for (final message in chatMessages) {
       final rideId = message['rideId']?.toString();
@@ -1673,6 +2332,32 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               ' - ${intl.DateFormat('y/MM/dd').format(_rideHistoryCustomRange!.end)}',
             ),
           ),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 4),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              segments: [
+                ButtonSegment(
+                  value: 'all',
+                  label: Text('الكل (${rideStatusCounts['all']})'),
+                ),
+                ButtonSegment(
+                  value: 'completed',
+                  label: Text('مكتملة (${rideStatusCounts['completed']})'),
+                ),
+                ButtonSegment(
+                  value: 'cancelled',
+                  label: Text('ملغاة (${rideStatusCounts['cancelled']})'),
+                ),
+              ],
+              selected: {_rideHistoryStatus},
+              onSelectionChanged: (selection) {
+                setState(() => _rideHistoryStatus = selection.first);
+              },
+            ),
+          ),
+        ),
         const Divider(height: 1),
         Expanded(
           child: visibleRides.isEmpty

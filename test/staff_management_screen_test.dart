@@ -18,7 +18,7 @@ void main() {
             requestOptions: options,
             data: {
               'averageRating': generalAdmin ? 3.0 : 4.5,
-              'ratingsCount': 1,
+              'ratingsCount': 2,
               'ratings': [
                 {
                   'id': 1,
@@ -26,8 +26,18 @@ void main() {
                   'interactionId': generalAdmin ? 21 : 19,
                   'raterRole': 'driver',
                   'raterName': 'سائق',
-                  'stars': generalAdmin ? 3 : 5,
+                  'stars': generalAdmin ? 4 : 5,
                   'comment': generalAdmin ? 'جيد' : 'ممتاز',
+                  'createdAt': DateTime.now().toIso8601String(),
+                },
+                {
+                  'id': 2,
+                  'interactionType': 'conversation',
+                  'interactionId': generalAdmin ? 22 : 20,
+                  'raterRole': 'driver',
+                  'raterName': 'سائق آخر',
+                  'stars': generalAdmin ? 2 : 1,
+                  'comment': generalAdmin ? 'يحتاج تحسين' : 'ضعيف',
                   'createdAt': DateTime.now().toIso8601String(),
                 },
               ],
@@ -49,7 +59,7 @@ void main() {
                   'jobTitle': 'مشرف',
                   'role': 'supervisor',
                   'roleName': 'مشرف',
-                    'profileImageUrl':
+                  'profileImageUrl':
                       'https://firebasestorage.googleapis.com/v0/b/godrive-d7f94.firebasestorage.app/o/staff-profiles%2F1%2Fstaff.png?alt=media&token=test',
                   'isActive': 1,
                 },
@@ -258,14 +268,29 @@ void main() {
     expect(find.textContaining('4.5 من 5'), findsOneWidget);
     expect(find.textContaining('محادثة #19'), findsOneWidget);
     expect(find.text('ممتاز'), findsOneWidget);
+    expect(find.text('1 نجمة (1)'), findsOneWidget);
+    expect(find.text('الكل (2)'), findsOneWidget);
     expect(
       requests.any((request) => request.path == '/api/admin/staff/1/ratings'),
       isTrue,
     );
 
+    await tester.tap(find.text('1 نجمة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('ضعيف'), findsOneWidget);
+    expect(find.text('ممتاز'), findsNothing);
+    await tester.tap(find.text('الكل (2)'));
+    await tester.pumpAndSettle();
+    expect(find.text('ممتاز'), findsOneWidget);
+
     await tester.tap(find.text('الإدارة العامة'));
     await tester.pumpAndSettle();
     expect(find.text('جيد'), findsOneWidget);
+    expect(find.text('2 نجمة (1)'), findsOneWidget);
+    await tester.tap(find.text('2 نجمة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('يحتاج تحسين'), findsOneWidget);
+    expect(find.text('جيد'), findsNothing);
     expect(
       requests
           .any((request) => request.path == '/api/admin/staff/ratings/general'),

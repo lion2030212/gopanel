@@ -40,9 +40,10 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
   Timer? _searchTimer;
   String _group = 'active';
-  String _period = 'all';
+  String _period = 'week';
   DateTimeRange? _customRange;
   List<Map<String, dynamic>> _rides = [];
+  Map<String, int> _groupCounts = const <String, int>{};
   Map<String, dynamic>? _ride;
   String? _error;
   bool _loading = false;
@@ -204,8 +205,17 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               .toList()
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? rides.length;
+      final rawCounts = data['counts'];
+      final counts = <String, int>{};
+      if (rawCounts is Map) {
+        for (final entry in rawCounts.entries) {
+          counts[entry.key.toString()] =
+              int.tryParse(entry.value.toString()) ?? 0;
+        }
+      }
       setState(() {
         _rides = reset ? rides : [..._rides, ...rides];
+        _groupCounts = counts;
         _page = page;
         _hasMore = _rides.length < total;
       });
@@ -794,7 +804,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     segments: _groups.entries
                         .map((entry) => ButtonSegment<String>(
                               value: entry.key,
-                              label: Text(entry.value),
+                              label: Text(
+                                  '${entry.value} (${_groupCounts[entry.key] ?? 0})'),
                             ))
                         .toList(),
                     selected: {_group},

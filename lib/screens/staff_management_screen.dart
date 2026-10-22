@@ -813,6 +813,7 @@ class _StaffRatingsTabState extends State<_StaffRatingsTab> {
   bool _loading = true;
   String? _error;
   String _period = 'month';
+  int? _ratingsStarFilter;
   double _averageRating = 0;
 
   @override
@@ -878,7 +879,7 @@ class _StaffRatingsTabState extends State<_StaffRatingsTab> {
         text.contains(' ') ? text.replaceFirst(' ', 'T') : text);
   }
 
-  List<Map<String, dynamic>> get _visibleRatings {
+  List<Map<String, dynamic>> get _periodRatings {
     final now = DateTime.now();
     final cutoff = switch (_period) {
       'week' => now.subtract(const Duration(days: 7)),
@@ -890,6 +891,23 @@ class _StaffRatingsTabState extends State<_StaffRatingsTab> {
       final date = _date(rating['createdAt']);
       return date != null && !date.isBefore(cutoff);
     }).toList();
+  }
+
+  int? _ratingStars(Map<String, dynamic> rating) =>
+      int.tryParse(rating['stars']?.toString() ?? '');
+
+  List<Map<String, dynamic>> get _visibleRatings {
+    final filter = _ratingsStarFilter;
+    if (filter == null) return _periodRatings;
+    return _periodRatings
+        .where((rating) => _ratingStars(rating) == filter)
+        .toList();
+  }
+
+  int _ratingCount(int? stars) {
+    final ratings = _periodRatings;
+    if (stars == null) return ratings.length;
+    return ratings.where((rating) => _ratingStars(rating) == stars).length;
   }
 
   @override
@@ -947,6 +965,38 @@ class _StaffRatingsTabState extends State<_StaffRatingsTab> {
             child: Text(
               'المتوسط ${_averageRating.toStringAsFixed(1)} من 5 · ${_ratings.length} تقييمات',
               style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                  child: Center(
+                    child: Row(
+                      children: [
+                        FilterChip(
+                          label: Text('الكل (${_ratingCount(null)})'),
+                          selected: _ratingsStarFilter == null,
+                          onSelected: (_) =>
+                              setState(() => _ratingsStarFilter = null),
+                        ),
+                        for (var stars = 1; stars <= 5; stars++) ...[
+                          const SizedBox(width: 8),
+                          FilterChip(
+                            label: Text('$stars نجمة (${_ratingCount(stars)})'),
+                            selected: _ratingsStarFilter == stars,
+                            onSelected: (_) =>
+                                setState(() => _ratingsStarFilter = stars),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
           Expanded(

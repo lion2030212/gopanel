@@ -36,8 +36,11 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
 
   String _period = 'all';
   String _partyRole = 'all';
+  String _complaintType = 'complainant';
   DateTimeRange? _customRange;
   List<Map<String, dynamic>> _items = [];
+  int _complainantCount = 0;
+  int _complainedAgainstCount = 0;
   int _page = 0;
   int _total = 0;
   int _requestId = 0;
@@ -60,6 +63,8 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       ? '/api/admin/support/history/tickets'
       : '/api/admin/support/history/conversations';
 
+  bool get _showComplaintTypes => widget.ticketsMode && widget.userId != null;
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +79,9 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
         oldWidget.adminId != widget.adminId ||
         oldWidget.ticketsMode != widget.ticketsMode) {
       _items = [];
+      _complainantCount = 0;
+      _complainedAgainstCount = 0;
+      _complaintType = 'complainant';
       _selectedRecordId = null;
       _selectedRecord = null;
       _detail = null;
@@ -159,6 +167,7 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
     } else {
       query['userId'] = widget.userId;
       query['userRole'] = widget.userRole;
+      if (_showComplaintTypes) query['complaintType'] = _complaintType;
     }
     final range = _selectedRange();
     if (range != null) {
@@ -181,10 +190,17 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
               .toList()
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? rows.length;
+      final categoryCounts = data['categoryCounts'];
       setState(() {
         _items = reset ? rows : [..._items, ...rows];
         _page = page;
         _total = total;
+        if (categoryCounts is Map) {
+          _complainantCount =
+              (categoryCounts['complainant'] as num?)?.toInt() ?? 0;
+          _complainedAgainstCount =
+              (categoryCounts['complainedAgainst'] as num?)?.toInt() ?? 0;
+        }
         _loading = false;
         _loadingMore = false;
       });
@@ -202,6 +218,19 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
             : 'تعذر تحميل سجل المحادثات';
       });
     }
+  }
+
+  void _selectComplaintType(String complaintType) {
+    if (complaintType == _complaintType) return;
+    setState(() {
+      _complaintType = complaintType;
+      _items = [];
+      _selectedRecordId = null;
+      _selectedRecord = null;
+      _detail = null;
+      _messages = [];
+    });
+    unawaited(_loadHistory(reset: true));
   }
 
   Future<void> _openItem(Map<String, dynamic> item) async {
@@ -502,16 +531,22 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       children: [
         Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 16, 4),
-          child: widget.adminId == null
-              ? _buildPeriodFilter()
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildPartyFilter(),
-                    const SizedBox(height: 8),
-                    _buildPeriodFilter(),
-                  ],
-                ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_showComplaintTypes) ...[
+                _buildComplaintTypeFilter(),
+                const SizedBox(height: 8),
+              ],
+              if (widget.adminId == null)
+                _buildPeriodFilter()
+              else ...[
+                _buildPartyFilter(),
+                const SizedBox(height: 8),
+                _buildPeriodFilter(),
+              ],
+            ],
+          ),
         ),
         if (_period == 'custom' && _customRange != null)
           Padding(
@@ -575,6 +610,22 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       ],
     );
   }
+
+  Widget _buildComplaintTypeFilter() => SegmentedButton<String>(
+        segments: [
+          ButtonSegment(
+            value: 'complainant',
+            label: Text('مشتكي ($_complainantCount)'),
+          ),
+          ButtonSegment(
+            value: 'complained_against',
+            label: Text('متشكى عليه ($_complainedAgainstCount)'),
+          ),
+        ],
+        selected: {_complaintType},
+        onSelectionChanged: (selection) =>
+            _selectComplaintType(selection.first),
+      );
 
   Widget _buildPartyFilter() => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

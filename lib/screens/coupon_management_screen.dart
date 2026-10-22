@@ -45,6 +45,7 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
   String _status = 'all';
   DateTimeRange? _customRange;
   List<Map<String, dynamic>> _coupons = [];
+  Map<String, int> _statusCounts = const <String, int>{};
   String? _error;
   bool _loading = false;
   bool _hasMore = false;
@@ -168,8 +169,17 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
               .toList()
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? coupons.length;
+      final rawCounts = data['counts'];
+      final counts = <String, int>{};
+      if (rawCounts is Map) {
+        for (final entry in rawCounts.entries) {
+          counts[entry.key.toString()] =
+              int.tryParse(entry.value.toString()) ?? 0;
+        }
+      }
       setState(() {
         _coupons = reset ? coupons : [..._coupons, ...coupons];
+        _statusCounts = counts;
         _page = page;
         _hasMore = _coupons.length < total;
       });
@@ -186,6 +196,7 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
   Future<void> _openForm([Map<String, dynamic>? coupon]) async {
     final values = await showDialog<Map<String, dynamic>>(
       context: context,
+      useRootNavigator: false,
       builder: (_) => CouponFormDialog(
         client: _dio,
         adminToken: widget.adminToken,
@@ -398,7 +409,8 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
                             segments: _statuses.entries
                                 .map((entry) => ButtonSegment<String>(
                                       value: entry.key,
-                                      label: Text(entry.value),
+                                      label: Text(
+                                          '${entry.value} (${_statusCounts[entry.key] ?? 0})'),
                                     ))
                                 .toList(),
                             selected: {_status},
@@ -806,29 +818,40 @@ class _CouponFormDialogState extends State<CouponFormDialog> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _scope,
-                    alignment: AlignmentDirectional.centerEnd,
-                    decoration: const InputDecoration(
-                      labelText: 'المستفيد',
-                      border: OutlineInputBorder(),
+                  Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _scope,
+                      alignment: AlignmentDirectional.centerStart,
+                      decoration: const InputDecoration(
+                        labelText: 'المستفيد',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'all',
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            'جميع الركاب',
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.start,
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'rider',
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(
+                            'راكب محدد',
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.start,
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) => setState(() {
+                        _scope = value ?? 'all';
+                        if (_scope == 'all') _selectedRider = null;
+                      }),
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'all',
-                        alignment: AlignmentDirectional.centerEnd,
-                        child: Text('جميع الركاب', textAlign: TextAlign.end),
-                      ),
-                      DropdownMenuItem(
-                        value: 'rider',
-                        alignment: AlignmentDirectional.centerEnd,
-                        child: Text('راكب محدد', textAlign: TextAlign.end),
-                      ),
-                    ],
-                    onChanged: (value) => setState(() {
-                      _scope = value ?? 'all';
-                      if (_scope == 'all') _selectedRider = null;
-                    }),
                   ),
                   if (_scope == 'rider') ...[
                     const SizedBox(height: 10),

@@ -18,6 +18,7 @@ import 'package:admin_panel/widgets/dashboard_navigation.dart';
 import 'package:admin_panel/widgets/map_marker_details_card.dart';
 import 'package:admin_panel/widgets/map_stats_overlay.dart';
 import 'package:admin_panel/widgets/support_history_tab.dart';
+import 'package:admin_panel/widgets/user_notifications_tab.dart';
 import 'package:admin_panel/screens/support_management_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -25,6 +26,83 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() {
+  testWidgets('user notifications filter by period and category counts',
+      (tester) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final previousMonth = DateTime(now.year, now.month - 1, 15, 12);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: UserNotificationsTab(notifications: [
+          {
+            'id': 1,
+            'category': 'customer_service',
+            'title': 'إشعار اليوم',
+            'body': 'رسالة خدمة العملاء',
+            'createdAt': today.add(const Duration(hours: 12)).toIso8601String(),
+          },
+          {
+            'id': 2,
+            'category': 'promotion',
+            'title': 'إشعار الشهر الماضي',
+            'createdAt': previousMonth.toIso8601String(),
+          },
+        ]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<DropdownButtonFormField<String>>(
+            find.byType(DropdownButtonFormField<String>),
+          )
+          .initialValue,
+      'week',
+    );
+    expect(find.text('إشعار اليوم'), findsOneWidget);
+    expect(find.text('إشعار الشهر الماضي'), findsNothing);
+    expect(find.text('الكل (1)'), findsOneWidget);
+    expect(find.text('خدمة العملاء (1)'), findsOneWidget);
+    expect(find.text('عرض ترويجي (0)'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('اليوم').last);
+    await tester.pumpAndSettle();
+    expect(find.text('إشعار اليوم'), findsOneWidget);
+    expect(find.text('الكل (1)'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('مدة محددة').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('${today.day}').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('${today.day}').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تطبيق'));
+    await tester.pumpAndSettle();
+    expect(find.text('إشعار اليوم'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('الكل').last);
+    await tester.pumpAndSettle();
+    expect(find.text('إشعار اليوم'), findsOneWidget);
+    expect(find.text('إشعار الشهر الماضي'), findsOneWidget);
+    expect(find.text('الكل (2)'), findsOneWidget);
+    expect(find.text('عرض ترويجي (1)'), findsOneWidget);
+
+    final promotionChip = find.widgetWithText(FilterChip, 'عرض ترويجي (1)');
+    await tester.ensureVisible(promotionChip);
+    await tester.tap(promotionChip);
+    await tester.pumpAndSettle();
+    expect(find.text('إشعار اليوم'), findsNothing);
+    expect(find.text('إشعار الشهر الماضي'), findsOneWidget);
+  });
+
   testWidgets('map stats show live counts in a vertical circular stack',
       (tester) async {
     var onlineDrivers = 3;
@@ -95,6 +173,14 @@ void main() {
               },
             ],
             'total': 1,
+            'counts': {
+              'all': 10,
+              'active': 5,
+              'used': 2,
+              'disabled': 3,
+              'upcoming': 4,
+              'expired': 6,
+            },
           },
         ));
       },
@@ -102,10 +188,17 @@ void main() {
 
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-        body: CouponManagementScreen(
-          adminToken: 'admin-token',
-          onSessionExpired: fail,
-          client: client,
+        body: Directionality(
+          textDirection: TextDirection.rtl,
+          child: DashboardNavigation(
+            homeBuilder: (_) => CouponManagementScreen(
+              adminToken: 'admin-token',
+              onSessionExpired: fail,
+              client: client,
+            ),
+            routes: const {},
+            onRouteChanged: (_) {},
+          ),
         ),
       ),
     ));
@@ -113,6 +206,8 @@ void main() {
 
     expect(find.text('إدارة الكوبونات'), findsOneWidget);
     expect(find.text('GOFAST10'), findsOneWidget);
+    expect(find.text('كل الحالات (10)'), findsOneWidget);
+    expect(find.text('مفعّل الآن (5)'), findsOneWidget);
     expect(find.textContaining('جميع الركاب'), findsOneWidget);
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
     final addButtonWrap = find.ancestor(
@@ -129,7 +224,7 @@ void main() {
     );
     expect(find.byType(SegmentedButton<String>), findsOneWidget);
 
-    await tester.tap(find.text('مستخدم'));
+    await tester.tap(find.text('مستخدم (2)'));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['status'], 'used');
 
@@ -144,10 +239,28 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
-    final beneficiaryOption = tester.widget<Text>(
-      find.text('جميع الركاب').last,
+    final beneficiaryButton = tester.widget<DropdownButton<String>>(
+      find.descendant(
+        of: find.byType(DropdownButtonFormField<String>).last,
+        matching: find.byType(DropdownButton<String>),
+      ),
     );
-    expect(beneficiaryOption.textAlign, TextAlign.end);
+    expect(beneficiaryButton.alignment, AlignmentDirectional.centerStart);
+    expect(
+      beneficiaryButton.items!.map((item) => item.alignment),
+      everyElement(AlignmentDirectional.centerStart),
+    );
+    final beneficiaryOptionFinder = find.text('جميع الركاب').last;
+    final beneficiaryOption = tester.widget<Text>(beneficiaryOptionFinder);
+    expect(beneficiaryOption.textAlign, TextAlign.start);
+    expect(beneficiaryOption.textDirection, TextDirection.rtl);
+    expect(
+      Directionality.of(tester.element(beneficiaryOptionFinder)),
+      TextDirection.rtl,
+    );
+    final riderOption = tester.widget<Text>(find.text('راكب محدد').last);
+    expect(riderOption.textAlign, TextAlign.start);
+    expect(riderOption.textDirection, TextDirection.rtl);
     await tester.tap(find.text('جميع الركاب').last);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextFormField).at(0), 'NEW2026');
@@ -170,6 +283,7 @@ void main() {
     final monthStart = DateTime(now.year, now.month);
     final monthEnd = DateTime(now.year, now.month + 1);
     final previousMonth = DateTime(now.year, now.month - 1, 15);
+    final oldRecordDate = now.subtract(const Duration(days: 14));
     var currentCouponActive = true;
     var currentCouponCode = 'OWN-CURRENT';
     var currentCouponDiscount = '10.00';
@@ -196,8 +310,43 @@ void main() {
               'accountStatus': 'active',
             },
             'rides': [],
-            'wallet': {'balance': '0.00', 'transactions': []},
-            'ratings': [],
+            'wallet': {
+              'balance': '0.00',
+              'transactions': [
+                {
+                  'id': 'WALLET-CURRENT',
+                  'transactionType': 'deposit',
+                  'amount': '12.00',
+                  'createdAt': now.toIso8601String(),
+                },
+                {
+                  'id': 'WALLET-OLD',
+                  'transactionType': 'withdrawal',
+                  'amount': '5.00',
+                  'createdAt': oldRecordDate.toIso8601String(),
+                },
+              ],
+            },
+            'ratings': [
+              {
+                'id': 'RATING-FOUR',
+                'targetUserId': 12,
+                'stars': 4,
+                'createdAt': now.toIso8601String(),
+              },
+              {
+                'id': 'RATING-TWO',
+                'targetUserId': 12,
+                'stars': 2,
+                'createdAt': now.toIso8601String(),
+              },
+              {
+                'id': 'RATING-OLD',
+                'targetUserId': 12,
+                'stars': 5,
+                'createdAt': oldRecordDate.toIso8601String(),
+              },
+            ],
             'financialRecords': {},
             'coupons': {
               'assigned': [
@@ -236,6 +385,28 @@ void main() {
                   'reservationCount': 0,
                   'redemptionCount': 0,
                 },
+                {
+                  'couponId': 24,
+                  'riderId': 12,
+                  'code': 'OWN-USED',
+                  'discountPercent': '8.00',
+                  'startsAt': monthStart.toIso8601String(),
+                  'expiresAt': monthEnd.toIso8601String(),
+                  'isActive': 1,
+                  'reservationCount': 0,
+                  'redemptionCount': 1,
+                },
+                {
+                  'couponId': 25,
+                  'riderId': 12,
+                  'code': 'OWN-REVERSED',
+                  'discountPercent': '7.00',
+                  'startsAt': monthStart.toIso8601String(),
+                  'expiresAt': monthEnd.toIso8601String(),
+                  'isActive': 0,
+                  'reservationCount': 0,
+                  'redemptionCount': 1,
+                },
               ],
               'reservations': [
                 {
@@ -265,6 +436,24 @@ void main() {
                   'couponRiderId': null,
                   'rideId': 57,
                   'redeemedAt': previousMonth.toIso8601String(),
+                },
+                {
+                  'id': 43,
+                  'couponId': 24,
+                  'couponCode': 'OWN-USED',
+                  'couponRiderId': null,
+                  'rideId': 58,
+                  'redeemedAt': now.toIso8601String(),
+                  'reversedAt': null,
+                },
+                {
+                  'id': 44,
+                  'couponId': 25,
+                  'couponCode': 'OWN-REVERSED',
+                  'couponRiderId': 12,
+                  'rideId': 59,
+                  'redeemedAt': now.toIso8601String(),
+                  'reversedAt': now.toIso8601String(),
                 },
               ],
             },
@@ -308,12 +497,70 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.widgetWithIcon(IconButton, Icons.arrow_back), findsOneWidget);
     expect(find.text('الكوبونات'), findsOneWidget);
+    final walletTab = find.byType(Tab).at(2);
+    await tester.ensureVisible(walletTab);
+    await tester.tap(walletTab);
+    await tester.pumpAndSettle();
+    expect(find.text('أسبوع'), findsOneWidget);
+    expect(find.text('المعرّف: WALLET-CURRENT'), findsOneWidget);
+    expect(find.text('المعرّف: WALLET-OLD'), findsNothing);
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('الكل').last);
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: WALLET-OLD'), findsOneWidget);
+
+    final ratingsTab = find.byType(Tab).at(4);
+    await tester.ensureVisible(ratingsTab);
+    await tester.tap(ratingsTab);
+    await tester.pumpAndSettle();
+    expect(find.text('2 نجمة (1)'), findsOneWidget);
+    expect(find.text('4 نجمة (1)'), findsOneWidget);
+    expect(find.text('5 نجمة (0)'), findsOneWidget);
+    expect(find.text('المعرّف: RATING-OLD'), findsNothing);
+    await tester.ensureVisible(find.text('4 نجمة (1)'));
+    await tester.tap(find.text('4 نجمة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: RATING-FOUR'), findsOneWidget);
+    expect(find.text('المعرّف: RATING-TWO'), findsNothing);
+
     final couponsTab = find.byType(Tab).at(5);
     await tester.ensureVisible(couponsTab);
     await tester.tap(couponsTab);
     await tester.pumpAndSettle();
 
+    expect(find.text('الكل (7)'), findsOneWidget);
+    expect(find.text('مستخدم (3)'), findsOneWidget);
+    expect(find.text('غير مستخدم (4)'), findsOneWidget);
+    await tester.tap(find.text('مستخدم (3)'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('rider-coupon-24')), findsNothing);
+    expect(find.text('OWN-USED'), findsOneWidget);
+    expect(find.byKey(const ValueKey('rider-coupon-22')), findsNothing);
+    expect(find.text('PUBLIC-USED'), findsOneWidget);
+    expect(find.text('PUBLIC-OLD'), findsOneWidget);
+    expect(find.text('OWN-REVERSED'), findsNothing);
+    await tester.tap(find.text('غير مستخدم (4)'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('rider-coupon-24')), findsNothing);
+    expect(find.text('PUBLIC-USED'), findsNothing);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('rider-coupon-25')),
+      180,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.byKey(const ValueKey('rider-coupon-25')), findsOneWidget);
+    await tester.tap(find.text('الكل (7)'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).first, const Offset(0, 1000));
+    await tester.pumpAndSettle();
+
     expect(find.text('OWN-CURRENT'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('OWN-OLD'),
+      180,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('OWN-OLD'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('OWN-DISABLED'),
@@ -377,6 +624,8 @@ void main() {
     expect(find.text('PUBLIC-USED'), findsOneWidget);
     expect(find.text('PUBLIC-OLD'), findsNothing);
 
+    await tester.drag(find.byType(ListView).first, const Offset(0, 1000));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('تعطيل الكوبون').first);
     await tester.pumpAndSettle();
     final toggleRequest = requests.lastWhere((request) =>
@@ -386,10 +635,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('الكوبونات المعطّلة'), findsOneWidget);
 
-    await tester.tap(find.descendant(
-      of: find.byKey(const ValueKey('rider-coupon-22')),
-      matching: find.byTooltip('حذف الكوبون'),
-    ));
+    final disabledCoupons = find.text('الكوبونات المعطّلة');
+    final couponScrollable = find
+        .ancestor(
+          of: disabledCoupons,
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    final disabledCouponCard = find.byKey(const ValueKey('rider-coupon-22'));
+    final deleteCoupon = find.descendant(
+      of: disabledCouponCard,
+      matching: find.byIcon(Icons.delete_outline),
+    );
+    await tester.scrollUntilVisible(
+      disabledCouponCard,
+      180,
+      scrollable: couponScrollable,
+    );
+    await tester.ensureVisible(deleteCoupon);
+    await tester.pumpAndSettle();
+    await tester.tap(deleteCoupon);
     await tester.pumpAndSettle();
     expect(requests.where((request) => request.method == 'DELETE'), isEmpty);
 
@@ -397,13 +662,34 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('مدة محددة').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('${now.day}').first);
+    final datePicker = find.byType(DateRangePickerDialog);
+    final todayInPicker = find
+        .descendant(
+          of: datePicker,
+          matching: find.text('${now.day}'),
+        )
+        .first;
+    await tester.tap(todayInPicker);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('${now.day}').first);
+    await tester.tap(todayInPicker);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('تطبيق').last);
+    await tester.tap(find.descendant(
+      of: datePicker,
+      matching: find.text('تطبيق'),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byType(DateRangePickerDialog), findsNothing);
+    final dateLabel =
+        '${now.year}/${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}';
+    expect(find.text('$dateLabel - $dateLabel'), findsOneWidget);
+    await tester.drag(find.byType(ListView).first, const Offset(0, 1000));
     await tester.pumpAndSettle();
     expect(find.text('OWN-EDITED'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('PUBLIC-USED'),
+      180,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('PUBLIC-USED'), findsOneWidget);
     expect(find.text('PUBLIC-OLD'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -443,7 +729,10 @@ void main() {
             ? {
                 'tickets': [
                   {
-                    'id': 44,
+                    'id': options.queryParameters['complaintType'] ==
+                            'complained_against'
+                        ? 45
+                        : 44,
                     'userId': 12,
                     'userRole': 'driver',
                     'customerName': 'سائق الاختبار',
@@ -458,6 +747,10 @@ void main() {
                   },
                 ],
                 'total': 1,
+                'categoryCounts': {
+                  'complainant': 7,
+                  'complainedAgainst': 3,
+                },
               }
             : {
                 'ticket': {
@@ -491,6 +784,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('شكوى #44'), findsOneWidget);
+    expect(find.text('مشتكي (7)'), findsOneWidget);
+    expect(find.text('متشكى عليه (3)'), findsOneWidget);
     expect(
       find.text('صاحب السجل: سائق الاختبار · 0500000000 · سائق'),
       findsOneWidget,
@@ -501,11 +796,25 @@ void main() {
     );
     expect(requests.first.queryParameters['userId'], 12);
     expect(requests.first.queryParameters['userRole'], 'driver');
+    expect(requests.first.queryParameters['complaintType'], 'complainant');
     expect(requests.first.queryParameters.containsKey('startAt'), isFalse);
     expect(
       tester.widget<ListTile>(find.byType(ListTile).first).tileColor,
       isNull,
     );
+
+    await tester.tap(find.text('متشكى عليه (3)'));
+    await tester.pumpAndSettle();
+    expect(find.text('شكوى #45'), findsOneWidget);
+    expect(
+      requests.last.queryParameters['complaintType'],
+      'complained_against',
+    );
+
+    await tester.tap(find.text('مشتكي (7)'));
+    await tester.pumpAndSettle();
+    expect(find.text('شكوى #44'), findsOneWidget);
+    expect(requests.last.queryParameters['complaintType'], 'complainant');
 
     await tester.tap(find.byType(DropdownButton<String>));
     await tester.pumpAndSettle();
@@ -991,6 +1300,12 @@ void main() {
                 },
               ],
               'total': 1,
+              'counts': {
+                'all': 4,
+                'active': 1,
+                'inactive': 2,
+                'suspended': 1,
+              },
             },
           ));
           return;
@@ -1309,6 +1624,7 @@ void main() {
         key: scaffoldKey,
         drawer: AdminDrawer(
           selectedDestination: AdminDestination.driverMap,
+          permissions: const {'notifications.send'},
           onDestinationSelected: (destination) =>
               selectedDestination = destination,
           onLogout: () {},
@@ -1319,6 +1635,15 @@ void main() {
 
     scaffoldKey.currentState!.openDrawer();
     await tester.pumpAndSettle();
+    final drawer = find.byType(Drawer);
+    await tester.scrollUntilVisible(
+      find.text('إرسال تنبيهات'),
+      100,
+      scrollable: find.descendant(
+        of: drawer,
+        matching: find.byType(Scrollable),
+      ),
+    );
     await tester.tap(find.text('إرسال تنبيهات'));
 
     expect(selectedDestination, AdminDestination.notifications);
@@ -1538,7 +1863,11 @@ void main() {
           };
           handler.resolve(Response(
             requestOptions: options,
-            data: {'rides': rides, 'total': rides.length},
+            data: {
+              'rides': rides,
+              'total': rides.length,
+              'counts': {'active': 4, 'cancelled': 2, 'completed': 1},
+            },
           ));
           return;
         }
@@ -1589,7 +1918,25 @@ void main() {
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
     expect(requests.first.queryParameters['group'], 'active');
     expect(requests.first.queryParameters['page'], 1);
-    expect(find.text('كل الفترات'), findsOneWidget);
+    expect(find.text('النشطة (4)'), findsOneWidget);
+    expect(find.text('الملغاة (2)'), findsOneWidget);
+    expect(find.text('المكتملة (1)'), findsOneWidget);
+    expect(find.text('أسبوع'), findsOneWidget);
+    expect(requests.first.queryParameters['startAt'], isNotNull);
+    expect(requests.first.queryParameters['endAt'], isNotNull);
+    final initialWeekStart =
+        DateTime.parse(requests.first.queryParameters['startAt'] as String)
+            .toLocal();
+    final initialWeekEnd =
+        DateTime.parse(requests.first.queryParameters['endAt'] as String)
+            .toLocal();
+    expect(initialWeekStart.weekday, 6);
+    expect(
+      DateTime(initialWeekEnd.year, initialWeekEnd.month, initialWeekEnd.day),
+      DateTime(initialWeekStart.year, initialWeekStart.month,
+              initialWeekStart.day)
+          .add(const Duration(days: 7)),
+    );
 
     await tester.enterText(find.byType(TextField).first, 'ABC-123');
     await tester.pump(const Duration(milliseconds: 400));
@@ -1601,7 +1948,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('اليوم'), findsOneWidget);
     expect(find.text('أمس'), findsOneWidget);
-    expect(find.text('أسبوع'), findsOneWidget);
+    expect(find.text('أسبوع'), findsWidgets);
     expect(find.text('شهر'), findsOneWidget);
     expect(find.text('مدة محددة'), findsOneWidget);
     await tester.tap(find.text('أمس'));
@@ -1717,7 +2064,7 @@ void main() {
 
     await tester.tap(find.byTooltip('العودة إلى السجل'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('الملغاة'));
+    await tester.tap(find.text('الملغاة (2)'));
     await tester.pumpAndSettle();
     final cancelledCard = tester.widget<Card>(find.byType(Card).first);
     final cancelledShape = cancelledCard.shape! as RoundedRectangleBorder;
@@ -1729,7 +2076,7 @@ void main() {
     await tester.tap(find.byTooltip('العودة إلى السجل'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('المكتملة'));
+    await tester.tap(find.text('المكتملة (1)'));
     await tester.pumpAndSettle();
     final completedCard = tester.widget<Card>(find.byType(Card).first);
     final completedShape = completedCard.shape! as RoundedRectangleBorder;
@@ -1807,6 +2154,12 @@ void main() {
               },
             ],
             'total': 1,
+            'counts': {
+              'all': 4,
+              'active': 1,
+              'inactive': 2,
+              'suspended': 1,
+            },
           }));
           return;
         }
@@ -1847,11 +2200,53 @@ void main() {
                     .add(const Duration(hours: 12))
                     .toIso8601String(),
               },
+              {
+                'rideId': 44,
+                'status': 'cancelled',
+                'fare': '12.00',
+                'createdAt':
+                    today.add(const Duration(hours: 11)).toIso8601String(),
+              },
+              {
+                'rideId': 45,
+                'status': 'accepted',
+                'fare': '15.00',
+                'createdAt':
+                    today.add(const Duration(hours: 10)).toIso8601String(),
+              },
             ],
             'wallet': {
               'balance': '12.00',
               'transactions': [
-                {'id': 5, 'amount': '12.00', 'transactionType': 'deposit'},
+                {
+                  'id': 5,
+                  'amount': '12.00',
+                  'transactionType': 'deposit',
+                  'createdAt':
+                      today.add(const Duration(hours: 12)).toIso8601String(),
+                },
+                {
+                  'id': 6,
+                  'amount': '4.00',
+                  'transactionType': 'withdrawal',
+                  'createdAt':
+                      today.add(const Duration(hours: 11)).toIso8601String(),
+                },
+                {
+                  'id': 7,
+                  'amount': '3.00',
+                  'transactionType': 'payment',
+                  'createdAt':
+                      today.add(const Duration(hours: 10)).toIso8601String(),
+                },
+                {
+                  'id': 8,
+                  'amount': '2.00',
+                  'transactionType': 'payment',
+                  'createdAt': customDate
+                      .add(const Duration(hours: 10))
+                      .toIso8601String(),
+                },
               ],
             },
             'ratings': [
@@ -1954,12 +2349,15 @@ void main() {
             'notifications': [
               {
                 'id': 801,
+                'category': 'customer_service',
                 'title': 'إشعار هذا الأسبوع',
+                'body': 'رسالة خدمة العملاء',
                 'createdAt':
                     weekDate.add(const Duration(hours: 12)).toIso8601String(),
               },
               {
                 'id': 802,
+                'category': 'promotion',
                 'title': 'إشعار الشهر الماضي',
                 'createdAt': previousMonthDate
                     .add(const Duration(hours: 12))
@@ -2039,6 +2437,13 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('أحمد راكب'), findsOneWidget);
+    expect(find.text('الكل (4)'), findsOneWidget);
+    expect(find.text('نشط (1)'), findsOneWidget);
+    expect(find.text('غير نشط (2)'), findsOneWidget);
+    expect(find.text('موقوف (1)'), findsOneWidget);
+    await tester.tap(find.text('غير نشط (2)'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['status'], 'inactive');
     await tester.tap(find.text('أحمد راكب'));
     await tester.pumpAndSettle();
     expect(find.text('البيانات الشخصية'), findsNothing);
@@ -2094,12 +2499,15 @@ void main() {
     expect(find.text('المعرّف: 503'), findsNothing);
     expect(find.text('المعرّف: 504'), findsNothing);
     expect(find.text('المعرّف: 505'), findsOneWidget);
+    expect(find.text('كل التصنيفات (3)'), findsOneWidget);
+    expect(find.text('عجوزات الرحلات (2)'), findsOneWidget);
+    expect(find.text('عكس التسوية (1)'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(FilterChip, 'عجوزات الرحلات'));
+    await tester.tap(find.widgetWithText(FilterChip, 'عجوزات الرحلات (2)'));
     await tester.pumpAndSettle();
     expect(find.text('المعرّف: 501'), findsOneWidget);
     expect(find.text('المعرّف: 505'), findsNothing);
-    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات'));
+    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات (3)'));
     await tester.pumpAndSettle();
     expect(find.text('المعرّف: 505'), findsOneWidget);
 
@@ -2116,6 +2524,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('المعرّف: 504'), findsOneWidget);
     expect(find.text('المعرّف: 501'), findsNothing);
+    expect(find.text('كل التصنيفات (1)'), findsOneWidget);
+    expect(find.text('عجوزات الرحلات (1)'), findsOneWidget);
+    expect(find.text('عكس التسوية (0)'), findsOneWidget);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
@@ -2123,6 +2534,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('المعرّف: 501'), findsOneWidget);
     expect(find.text('المعرّف: 503'), findsOneWidget);
+    expect(find.text('كل التصنيفات (5)'), findsOneWidget);
 
     final activityTab = find.byType(Tab).at(6);
     await tester.ensureVisible(activityTab);
@@ -2132,16 +2544,26 @@ void main() {
       find.byType(DropdownButtonFormField<String>).last,
     );
     expect(activityPeriod.initialValue, 'week');
-    expect(find.text('المعرّف: 801'), findsOneWidget);
-    expect(find.text('المعرّف: 802'), findsNothing);
+    expect(find.text('إشعار هذا الأسبوع'), findsNothing);
     expect(find.text('المعرّف: 803'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilterChip, 'الإشعارات'));
+    expect(find.text('كل التصنيفات (2)'), findsOneWidget);
+    expect(find.text('محادثات الرحلات (1)'), findsOneWidget);
+    expect(find.text('أجهزة الإشعارات (1)'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilterChip, 'محادثات الرحلات (1)'));
     await tester.pumpAndSettle();
-    expect(find.text('المعرّف: 801'), findsOneWidget);
+    expect(find.text('محادثات الرحلات'), findsOneWidget);
     expect(find.text('المعرّف: 803'), findsNothing);
-    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات'));
+    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات (2)'));
     await tester.pumpAndSettle();
     expect(find.text('المعرّف: 803'), findsOneWidget);
+    final riderNotificationsTab = find.byType(Tab).at(7);
+    await tester.ensureVisible(riderNotificationsTab);
+    await tester.tap(riderNotificationsTab);
+    await tester.pumpAndSettle();
+    expect(find.text('إشعار هذا الأسبوع'), findsOneWidget);
+    expect(find.text('إشعار الشهر الماضي'), findsNothing);
+    expect(find.text('خدمة العملاء (1)'), findsOneWidget);
+    expect(find.text('عرض ترويجي (0)'), findsOneWidget);
 
     final riderRidesTab = find.text('الرحلات');
     await tester.ensureVisible(riderRidesTab);
@@ -2151,6 +2573,18 @@ void main() {
     expect(find.text('الرحلة 41'), findsOneWidget);
     expect(find.text('الرحلة 42'), findsNothing);
     expect(find.text('الرحلة 43'), findsNothing);
+    expect(find.text('الكل (3)'), findsOneWidget);
+    expect(find.text('مكتملة (1)'), findsOneWidget);
+    expect(find.text('ملغاة (1)'), findsOneWidget);
+    await tester.tap(find.text('مكتملة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('الرحلة 41'), findsOneWidget);
+    expect(find.text('الرحلة 44'), findsNothing);
+    expect(find.text('الرحلة 45'), findsNothing);
+    await tester.tap(find.text('الكل (3)'));
+    await tester.pumpAndSettle();
+    expect(find.text('الرحلة 44'), findsOneWidget);
+    expect(find.text('الرحلة 45'), findsOneWidget);
     await tester.tap(find.text('الرحلة 41'));
     await tester.pumpAndSettle();
     expect(find.text('الحالة'), findsOneWidget);
@@ -2173,6 +2607,9 @@ void main() {
     expect(find.text('الرحلة 41'), findsOneWidget);
     expect(find.text('الرحلة 42'), findsOneWidget);
     expect(find.text('الرحلة 43'), findsNothing);
+    expect(find.text('الكل (4)'), findsOneWidget);
+    expect(find.text('مكتملة (2)'), findsOneWidget);
+    expect(find.text('ملغاة (1)'), findsOneWidget);
     await tester.tap(find.text('الرحلة 42'));
     await tester.pumpAndSettle();
     expect(find.text('لا توجد رسائل لهذه الرحلة'), findsOneWidget);
@@ -2199,9 +2636,31 @@ void main() {
     expect(find.text('الرحلة 41'), findsOneWidget);
     expect(find.text('الرحلة 42'), findsOneWidget);
     expect(find.text('الرحلة 43'), findsOneWidget);
+    expect(find.text('الكل (5)'), findsOneWidget);
 
     await tester.tap(find.text('المحفظة'));
     await tester.pumpAndSettle();
+    expect(find.text('الكل (3)'), findsOneWidget);
+    expect(find.text('سحب (1)'), findsOneWidget);
+    expect(find.text('إيداع (1)'), findsOneWidget);
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('شهر').last);
+    await tester.pumpAndSettle();
+    expect(find.text('الكل (4)'), findsOneWidget);
+    await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('أسبوع').last);
+    await tester.pumpAndSettle();
+    expect(find.text('الكل (3)'), findsOneWidget);
+    await tester.tap(find.text('سحب (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 6'), findsOneWidget);
+    expect(find.text('المعرّف: 5'), findsNothing);
+    expect(find.text('المعرّف: 7'), findsNothing);
+    await tester.tap(find.text('الكل (3)'));
+    await tester.pumpAndSettle();
+    expect(find.text('المعرّف: 7'), findsOneWidget);
     expect(find.text('الحد العام: -30.00 ج.م'), findsOneWidget);
     final balanceTitle = tester.getTopLeft(find.text('الرصيد الحالي'));
     final debtLimitTitle = tester.getTopLeft(find.text('حد الدين'));
@@ -2299,6 +2758,12 @@ void main() {
                 },
               ],
               'total': 1,
+              'counts': {
+                'all': options.queryParameters['search'] == 'ABC' ? 1 : 4,
+                'active': 1,
+                'inactive': 2,
+                'suspended': 1,
+              },
             },
           ));
           return;
@@ -2327,13 +2792,24 @@ void main() {
                 'id': 41,
                 'status': 'completed',
                 'fare': '25.00',
+                'driverNet': '20.00',
+                'commissionAmount': '5.00',
                 'createdAt':
                     today.add(const Duration(hours: 12)).toIso8601String(),
+              },
+              {
+                'id': 44,
+                'status': 'cancelled',
+                'fare': '12.00',
+                'createdAt':
+                    today.add(const Duration(hours: 11)).toIso8601String(),
               },
               {
                 'id': 42,
                 'status': 'completed',
                 'fare': '18.00',
+                'driverNet': '40.00',
+                'commissionAmount': '10.00',
                 'createdAt':
                     customDate.add(const Duration(hours: 12)).toIso8601String(),
               },
@@ -2341,6 +2817,8 @@ void main() {
                 'id': 43,
                 'status': 'completed',
                 'fare': '30.00',
+                'driverNet': '60.00',
+                'commissionAmount': '15.00',
                 'createdAt': previousMonthDate
                     .add(const Duration(hours: 12))
                     .toIso8601String(),
@@ -2372,18 +2850,38 @@ void main() {
                     .toIso8601String(),
               },
             ],
+            'notifications': [
+              {
+                'id': 801,
+                'category': 'customer_service',
+                'title': 'تنبيه السائق هذا الأسبوع',
+                'body': 'تذكير بخدمة العملاء',
+                'createdAt':
+                    weekDate.add(const Duration(hours: 12)).toIso8601String(),
+              },
+              {
+                'id': 802,
+                'category': 'promotion',
+                'title': 'عرض السائق الشهر الماضي',
+                'createdAt': previousMonthDate
+                    .add(const Duration(hours: 12))
+                    .toIso8601String(),
+              },
+            ],
             'wallet': {
               'balance': '100.00',
               'transactions': [
                 {
                   'id': 101,
                   'amount': '25.00',
+                  'transactionType': 'deposit',
                   'createdAt':
                       today.add(const Duration(hours: 12)).toIso8601String(),
                 },
                 {
                   'id': 102,
                   'amount': '10.00',
+                  'transactionType': 'withdrawal',
                   'createdAt': customDate
                       .add(const Duration(hours: 12))
                       .toIso8601String(),
@@ -2391,12 +2889,14 @@ void main() {
                 {
                   'id': 104,
                   'amount': '15.00',
+                  'transactionType': 'payment',
                   'createdAt':
                       weekDate.add(const Duration(hours: 12)).toIso8601String(),
                 },
                 {
                   'id': 103,
                   'amount': '5.00',
+                  'transactionType': 'refund',
                   'createdAt': previousMonthDate
                       .add(const Duration(hours: 12))
                       .toIso8601String(),
@@ -2503,14 +3003,19 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('محمد علي'), findsOneWidget);
+    expect(find.text('الكل (4)'), findsOneWidget);
+    expect(find.text('نشط (1)'), findsOneWidget);
+    expect(find.text('غير نشط (2)'), findsOneWidget);
+    expect(find.text('محظور / موقوف (1)'), findsOneWidget);
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
 
     await tester.enterText(find.byType(TextField).first, 'ABC');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['search'], 'ABC');
+    expect(find.text('الكل (1)'), findsOneWidget);
 
-    await tester.tap(find.text('نشط').first);
+    await tester.tap(find.text('نشط (1)'));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['status'], 'active');
 
@@ -2520,6 +3025,14 @@ void main() {
     expect(find.text('البيانات الشخصية'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('نعم'), findsOneWidget);
+    final driverNotificationsTab = find.byType(Tab).last;
+    await tester.ensureVisible(driverNotificationsTab);
+    await tester.tap(driverNotificationsTab);
+    await tester.pumpAndSettle();
+    expect(find.text('تنبيه السائق هذا الأسبوع'), findsOneWidget);
+    expect(find.text('عرض السائق الشهر الماضي'), findsNothing);
+    expect(find.text('خدمة العملاء (1)'), findsOneWidget);
+    expect(find.text('عرض ترويجي (0)'), findsOneWidget);
     final ratingsTab = find.byType(Tab).at(5);
     await tester.ensureVisible(ratingsTab);
     await tester.tap(ratingsTab);
@@ -2533,6 +3046,18 @@ void main() {
     expect(find.text('الرحلة 702'), findsOneWidget);
     expect(find.text('الرحلة 703'), findsNothing);
     expect(find.text('رقم 991'), findsNothing);
+    expect(find.text('الكل (2)'), findsOneWidget);
+    expect(find.text('4 نجمة (1)'), findsOneWidget);
+    expect(find.text('5 نجمة (1)'), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(FilterChip, '4 نجمة (1)'));
+    await tester.tap(find.widgetWithText(FilterChip, '4 نجمة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('الرحلة 701'), findsNothing);
+    expect(find.text('الرحلة 702'), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(FilterChip, 'الكل (2)'));
+    await tester.tap(find.widgetWithText(FilterChip, 'الكل (2)'));
+    await tester.pumpAndSettle();
+    expect(find.text('الرحلة 701'), findsOneWidget);
     await tester.tap(find.text('الرحلة 701'));
     await tester.pumpAndSettle();
     expect(find.text('تقييم الراكب اليوم'), findsOneWidget);
@@ -2545,6 +3070,21 @@ void main() {
     await tester.tap(ridesTab);
     await tester.pumpAndSettle();
     expect(find.text('رقم 41'), findsOneWidget);
+    expect(find.text('رقم 44'), findsOneWidget);
+    expect(find.text('الكل (2)'), findsOneWidget);
+    expect(find.text('مكتملة (1)'), findsOneWidget);
+    expect(find.text('ملغاة (1)'), findsOneWidget);
+    await tester.tap(find.text('ملغاة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 41'), findsNothing);
+    expect(find.text('رقم 44'), findsOneWidget);
+    await tester.tap(find.text('مكتملة (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 41'), findsOneWidget);
+    expect(find.text('رقم 44'), findsNothing);
+    await tester.tap(find.text('الكل (2)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 44'), findsOneWidget);
     expect(find.text('رقم 42'), findsNothing);
     expect(find.text('رقم 43'), findsNothing);
     await tester.tap(find.text('رقم 41'));
@@ -2624,14 +3164,49 @@ void main() {
       DefaultTabController.of(tester.element(find.byType(TabBarView))).index,
       3,
     );
+    for (final label in ['الرصيد الحالي', 'حد مديونية المحفظة']) {
+      expect(
+        find.ancestor(
+          of: find.text(label),
+          matching: find.byType(DropdownButtonFormField<String>),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.ancestor(
+          of: find.text(label),
+          matching: find.byType(SegmentedButton<String>),
+        ),
+        findsNothing,
+      );
+    }
+    final walletScrollable = find
+        .ancestor(
+          of: find.text('الرصيد الحالي'),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       find.text('حركات المحفظة'),
       200,
-      scrollable: find.byType(Scrollable).last,
+      scrollable: walletScrollable,
     );
     expect(find.text('حركات المحفظة'), findsOneWidget);
     expect(find.text('رقم 101'), findsOneWidget);
     expect(find.text('رقم 102'), findsNothing);
+    expect(find.text('الكل (1)'), findsOneWidget);
+    expect(find.text('سحب (0)'), findsOneWidget);
+    expect(find.text('إيداع (1)'), findsOneWidget);
+    expect(find.text('20.00 ج.م'), findsOneWidget);
+    expect(find.text('5.00 ج.م'), findsOneWidget);
+
+    await tester.tap(find.text('سحب (0)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 101'), findsNothing);
+    expect(find.text('لا توجد معاملات ضمن الفترة المحددة'), findsOneWidget);
+    await tester.tap(find.text('الكل (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 101'), findsOneWidget);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
@@ -2640,6 +3215,9 @@ void main() {
     expect(find.text('رقم 101'), findsOneWidget);
     expect(find.text('رقم 104'), findsOneWidget);
     expect(find.text('رقم 103'), findsNothing);
+    expect(find.text('الكل (2)'), findsOneWidget);
+    expect(find.text('إيداع (1)'), findsOneWidget);
+    expect(find.text('سحب (0)'), findsOneWidget);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
@@ -2648,6 +3226,19 @@ void main() {
     expect(find.text('رقم 101'), findsOneWidget);
     expect(find.text('رقم 102'), findsOneWidget);
     expect(find.text('رقم 103'), findsNothing);
+    expect(find.text('الكل (3)'), findsOneWidget);
+    expect(find.text('سحب (1)'), findsOneWidget);
+    expect(find.text('إيداع (1)'), findsOneWidget);
+    expect(find.text('60.00 ج.م'), findsOneWidget);
+    expect(find.text('15.00 ج.م'), findsOneWidget);
+
+    await tester.tap(find.text('سحب (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 101'), findsNothing);
+    expect(find.text('رقم 102'), findsOneWidget);
+    expect(find.text('رقم 104'), findsNothing);
+    await tester.tap(find.text('الكل (3)'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
@@ -2663,16 +3254,46 @@ void main() {
     expect(find.text('رقم 101'), findsNothing);
     expect(find.text('رقم 102'), findsOneWidget);
     expect(find.text('رقم 103'), findsNothing);
+    expect(find.text('الكل (1)'), findsOneWidget);
+    expect(find.text('سحب (1)'), findsOneWidget);
+    expect(find.text('إيداع (0)'), findsOneWidget);
+    expect(find.text('40.00 ج.م'), findsOneWidget);
+    expect(find.text('10.00 ج.م'), findsNWidgets(2));
 
-    await tester.scrollUntilVisible(
-      find.text('حد مديونية المحفظة'),
-      200,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('الحد العام: -300.00 ج.م'), findsOneWidget);
-    await tester.tap(find.byTooltip('تعديل حد المديونية'));
+    await tester.tap(find.text('إيداع (0)'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).last, '-450.00');
+    expect(find.text('رقم 102'), findsNothing);
+    await tester.tap(find.text('سحب (1)'));
+    await tester.pumpAndSettle();
+    expect(find.text('رقم 102'), findsOneWidget);
+
+    final debtLimitEditButton = find.ancestor(
+      of: find.byTooltip('تعديل حد المديونية'),
+      matching: find.byType(IconButton),
+    );
+    await tester.scrollUntilVisible(
+      debtLimitEditButton,
+      200,
+      scrollable: walletScrollable,
+    );
+    await tester.drag(walletScrollable, const Offset(0, 120));
+    await tester.pumpAndSettle();
+    expect(find.text('الحد العام: -300.00 ج.م'), findsOneWidget);
+    await tester.tap(debtLimitEditButton);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('حد مديونية المحفظة'),
+      ),
+      findsOneWidget,
+    );
+    final debtLimitField = find.ancestor(
+      of: find.text('الحد (ج.م)'),
+      matching: find.byType(TextFormField),
+    );
+    expect(debtLimitField, findsOneWidget);
+    await tester.enterText(debtLimitField, '-450.00');
     await tester.tap(find.text('حفظ'));
     await tester.pumpAndSettle();
     final debtLimitRequest = requests.lastWhere((request) =>
@@ -2693,13 +3314,16 @@ void main() {
     expect(find.text('رقم 902'), findsOneWidget);
     expect(find.text('رقم 903'), findsNothing);
     expect(find.text('رقم 904'), findsNothing);
+    expect(find.text('كل التصنيفات (2)'), findsOneWidget);
+    expect(find.text('دفتر عمولات ورسوم التطبيق (1)'), findsOneWidget);
+    expect(find.text('عجوزات الرحلات (1)'), findsOneWidget);
 
     await tester
-        .tap(find.widgetWithText(FilterChip, 'دفتر عمولات ورسوم التطبيق'));
+        .tap(find.widgetWithText(FilterChip, 'دفتر عمولات ورسوم التطبيق (1)'));
     await tester.pumpAndSettle();
     expect(find.text('رقم 901'), findsOneWidget);
     expect(find.text('رقم 902'), findsNothing);
-    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات'));
+    await tester.tap(find.widgetWithText(FilterChip, 'كل التصنيفات (2)'));
     await tester.pumpAndSettle();
     expect(find.text('رقم 902'), findsOneWidget);
 
@@ -2709,6 +3333,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('رقم 901'), findsOneWidget);
     expect(find.text('رقم 902'), findsNothing);
+    expect(find.text('كل التصنيفات (1)'), findsOneWidget);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();
@@ -2718,6 +3343,7 @@ void main() {
     expect(find.text('رقم 902'), findsOneWidget);
     expect(find.text('رقم 903'), findsNothing);
     expect(find.text('رقم 904'), findsOneWidget);
+    expect(find.text('كل التصنيفات (3)'), findsOneWidget);
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).last);
     await tester.pumpAndSettle();

@@ -11,6 +11,7 @@ import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/support_history_tab.dart';
+import '../widgets/user_notifications_tab.dart';
 
 class DriverManagementScreen extends StatefulWidget {
   const DriverManagementScreen({
@@ -35,6 +36,12 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   Timer? _searchTimer;
   List<Map<String, dynamic>> _drivers = [];
   Map<String, dynamic>? _details;
+  Map<String, int> _statusCounts = {
+    'all': 0,
+    'active': 0,
+    'inactive': 0,
+    'suspended': 0,
+  };
   String _status = 'all';
   String? _error;
   bool _loading = false;
@@ -46,13 +53,16 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   int _requestId = 0;
   int _detailRequestId = 0;
   String _rideHistoryPeriod = 'week';
+  String _rideHistoryStatus = 'all';
   DateTimeRange? _rideHistoryCustomRange;
   String _walletPeriod = 'day';
   DateTimeRange? _walletCustomRange;
+  String _walletMovementType = 'all';
   String _transactionsPeriod = 'week';
   DateTimeRange? _transactionsCustomRange;
   final Set<String> _transactionCategories = {};
   String _ratingsPeriod = 'week';
+  int? _ratingsStarFilter;
   DateTimeRange? _ratingsCustomRange;
   DashboardBackHandler? _dashboardBackHandler;
 
@@ -124,10 +134,19 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               .toList()
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? drivers.length;
+      final statusCounts = data['counts'];
       setState(() {
         _drivers = reset ? drivers : [..._drivers, ...drivers];
         _page = page;
         _hasMore = _drivers.length < total;
+        if (statusCounts is Map) {
+          _statusCounts = {
+            'all': (statusCounts['all'] as num?)?.toInt() ?? 0,
+            'active': (statusCounts['active'] as num?)?.toInt() ?? 0,
+            'inactive': (statusCounts['inactive'] as num?)?.toInt() ?? 0,
+            'suspended': (statusCounts['suspended'] as num?)?.toInt() ?? 0,
+          };
+        }
       });
     } on DioException catch (error) {
       if (!mounted || requestId != _requestId) return;
@@ -428,7 +447,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         lastDate: DateTime(2100),
         initialDateRange:
             _walletCustomRange ?? DateTimeRange(start: today, end: today),
-        helpText: 'اختر مدة المعاملات',
+        helpText: 'اختر مدة المحفظة',
         cancelText: 'إلغاء',
         confirmText: 'تطبيق',
         saveText: 'تطبيق',
@@ -784,21 +803,37 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             ),
           ),
         ),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-          child: SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'all', label: Text('الكل')),
-              ButtonSegment(value: 'active', label: Text('نشط')),
-              ButtonSegment(value: 'inactive', label: Text('غير نشط')),
-              ButtonSegment(value: 'suspended', label: Text('محظور / موقوف')),
-            ],
-            selected: {_status},
-            onSelectionChanged: (selection) {
-              setState(() => _status = selection.first);
-              unawaited(_loadDrivers(reset: true));
-            },
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth - 40),
+              child: Center(
+                child: SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                        value: 'all',
+                        label: Text('الكل (${_statusCounts['all']})')),
+                    ButtonSegment(
+                        value: 'active',
+                        label: Text('نشط (${_statusCounts['active']})')),
+                    ButtonSegment(
+                        value: 'inactive',
+                        label: Text('غير نشط (${_statusCounts['inactive']})')),
+                    ButtonSegment(
+                        value: 'suspended',
+                        label: Text(
+                            'محظور / موقوف (${_statusCounts['suspended']})')),
+                  ],
+                  selected: {_status},
+                  onSelectionChanged: (selection) {
+                    setState(() => _status = selection.first);
+                    unawaited(_loadDrivers(reset: true));
+                  },
+                ),
+              ),
+            ),
           ),
         ),
         if (_error != null) _errorBanner(_error!),
@@ -920,7 +955,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         : <String, dynamic>{};
 
     return DefaultTabController(
-      length: 8,
+      length: 9,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -970,6 +1005,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               Tab(text: 'التقييمات'),
               Tab(text: 'الشكاوى'),
               Tab(text: 'محادثات خدمة العملاء'),
+              Tab(text: 'الإشعارات'),
             ],
           ),
           Expanded(
@@ -1003,6 +1039,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                   userRole: 'driver',
                   ticketsMode: false,
                   onSessionExpired: widget.onSessionExpired,
+                ),
+                UserNotificationsTab(
+                  key: ValueKey('driver-${profile['driverId']}'),
+                  notifications: _asList(details['notifications']),
                 ),
               ],
             ),
@@ -1106,12 +1146,20 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     List<Map<String, dynamic>> transactions,
     Map<String, dynamic> profile,
   ) {
-    final commissions = rides.fold<double>(
-        0, (sum, ride) => sum + (_number(ride['commissionAmount']) ?? 0));
-    final earnings = rides.fold<double>(
-        0, (sum, ride) => sum + (_number(ride['driverNet']) ?? 0));
     final transactionRange = _walletTransactionRange();
-    final visibleTransactions = transactionRange == null
+    final periodRides = transactionRange == null
+        ? <Map<String, dynamic>>[]
+        : rides.where((ride) {
+            final date = _walletTransactionDate(ride['createdAt']);
+            return date != null &&
+                !date.isBefore(transactionRange.start) &&
+                date.isBefore(transactionRange.end);
+          }).toList();
+    final commissions = periodRides.fold<double>(
+        0, (sum, ride) => sum + (_number(ride['commissionAmount']) ?? 0));
+    final earnings = periodRides.fold<double>(
+        0, (sum, ride) => sum + (_number(ride['driverNet']) ?? 0));
+    final periodTransactions = transactionRange == null
         ? <Map<String, dynamic>>[]
         : transactions.where((transaction) {
             final date = _walletTransactionDate(transaction['createdAt']);
@@ -1119,6 +1167,15 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                 !date.isBefore(transactionRange.start) &&
                 date.isBefore(transactionRange.end);
           }).toList();
+    int movementCount(String type) => type == 'all'
+        ? periodTransactions.length
+        : periodTransactions
+            .where((transaction) => transaction['transactionType'] == type)
+            .length;
+    final visibleTransactions = periodTransactions.where((transaction) {
+      return _walletMovementType == 'all' ||
+          transaction['transactionType'] == _walletMovementType;
+    }).toList();
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -1153,7 +1210,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         DropdownButtonFormField<String>(
           initialValue: _walletPeriod,
           isExpanded: true,
-          decoration: const InputDecoration(labelText: 'فترة المعاملات'),
+          decoration: const InputDecoration(labelText: 'فترة المحفظة'),
           items: const [
             DropdownMenuItem(value: 'day', child: Text('يوم')),
             DropdownMenuItem(value: 'week', child: Text('أسبوع')),
@@ -1172,6 +1229,37 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               ' - ${intl.DateFormat('y/MM/dd').format(_walletCustomRange!.end)}',
             ),
           ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Center(
+                child: SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                      value: 'all',
+                      label: Text('الكل (${movementCount('all')})'),
+                    ),
+                    ButtonSegment(
+                      value: 'withdrawal',
+                      label: Text('سحب (${movementCount('withdrawal')})'),
+                    ),
+                    ButtonSegment(
+                      value: 'deposit',
+                      label: Text('إيداع (${movementCount('deposit')})'),
+                    ),
+                  ],
+                  selected: {_walletMovementType},
+                  onSelectionChanged: (selection) {
+                    setState(() => _walletMovementType = selection.first);
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
         const SizedBox(height: 12),
         Text('حركات المحفظة', style: Theme.of(context).textTheme.titleMedium),
         if (visibleTransactions.isEmpty)
@@ -1211,23 +1299,28 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       'cancellationFeeRecoveries': 'تحصيل رسوم الإلغاء',
     };
     final range = _transactionsRange();
-    final visibleSections = financialRecords.entries
-        .map((entry) {
-          final records = entry.value is List
-              ? (entry.value as List)
-                  .whereType<Map>()
-                  .map((record) => Map<String, dynamic>.from(record))
-                  .where((record) {
-                  if (_transactionsPeriod == 'all') return true;
-                  final date = _financialRecordDate(record);
-                  return date != null &&
-                      range != null &&
-                      !date.isBefore(range.start) &&
-                      date.isBefore(range.end);
-                }).toList()
-              : <Map<String, dynamic>>[];
-          return MapEntry(entry.key, records);
-        })
+    final periodSections = financialRecords.entries.map((entry) {
+      final records = entry.value is List
+          ? (entry.value as List)
+              .whereType<Map>()
+              .map((record) => Map<String, dynamic>.from(record))
+              .where((record) {
+              if (_transactionsPeriod == 'all') return true;
+              final date = _financialRecordDate(record);
+              return date != null &&
+                  range != null &&
+                  !date.isBefore(range.start) &&
+                  date.isBefore(range.end);
+            }).toList()
+          : <Map<String, dynamic>>[];
+      return MapEntry(entry.key, records);
+    }).toList();
+    final sectionCounts = {
+      for (final entry in periodSections) entry.key: entry.value.length,
+    };
+    final allRecordsCount =
+        sectionCounts.values.fold<int>(0, (total, count) => total + count);
+    final visibleSections = periodSections
         .where((entry) =>
             (_transactionCategories.isEmpty ||
                 _transactionCategories.contains(entry.key)) &&
@@ -1270,7 +1363,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
           child: Row(
             children: [
               FilterChip(
-                label: const Text('كل التصنيفات'),
+                label: Text('كل التصنيفات ($allRecordsCount)'),
                 selected: _transactionCategories.isEmpty,
                 onSelected: (_) =>
                     setState(() => _transactionCategories.clear()),
@@ -1278,7 +1371,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               for (final entry in sectionLabels.entries) ...[
                 const SizedBox(width: 8),
                 FilterChip(
-                  label: Text(entry.value),
+                  label: Text(
+                    '${entry.value} (${sectionCounts[entry.key] ?? 0})',
+                  ),
                   selected: _transactionCategories.contains(entry.key),
                   onSelected: (selected) => setState(() {
                     if (selected) {
@@ -1307,7 +1402,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   Widget _ratingsTab(
       List<Map<String, dynamic>> ratings, Map<String, dynamic> profile) {
     final ratingRange = _ratingsRange();
-    final visibleRatings = ratingRange == null
+    final periodRatings = ratingRange == null
         ? <Map<String, dynamic>>[]
         : ratings.where((rating) {
             final date = _ratingDate(rating['createdAt']);
@@ -1315,6 +1410,16 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                 !date.isBefore(ratingRange.start) &&
                 date.isBefore(ratingRange.end);
           }).toList();
+    int? starsFor(Map<String, dynamic> rating) =>
+        int.tryParse(rating['stars']?.toString() ?? '');
+    int ratingCount(int? stars) => stars == null
+        ? periodRatings.length
+        : periodRatings.where((rating) => starsFor(rating) == stars).length;
+    final visibleRatings = _ratingsStarFilter == null
+        ? periodRatings
+        : periodRatings
+            .where((rating) => starsFor(rating) == _ratingsStarFilter)
+            .toList();
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -1347,6 +1452,36 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             ),
           ),
         const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: Center(
+                child: Row(
+                  children: [
+                    FilterChip(
+                      label: Text('الكل (${ratingCount(null)})'),
+                      selected: _ratingsStarFilter == null,
+                      onSelected: (_) =>
+                          setState(() => _ratingsStarFilter = null),
+                    ),
+                    for (var stars = 1; stars <= 5; stars++) ...[
+                      const SizedBox(width: 8),
+                      FilterChip(
+                        label: Text('$stars نجمة (${ratingCount(stars)})'),
+                        selected: _ratingsStarFilter == stars,
+                        onSelected: (_) =>
+                            setState(() => _ratingsStarFilter = stars),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         Text('سجل التقييمات', style: Theme.of(context).textTheme.titleMedium),
         if (visibleRatings.isEmpty)
           const Padding(
@@ -1364,7 +1499,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     List<Map<String, dynamic>> chatMessages,
   ) {
     final rideRange = _rideHistoryRange();
-    final visibleRides = rideRange == null
+    final periodRides = rideRange == null
         ? rides
         : rides.where((ride) {
             final date = _rideHistoryDate(ride['createdAt']);
@@ -1372,6 +1507,18 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                 !date.isBefore(rideRange.start) &&
                 date.isBefore(rideRange.end);
           }).toList();
+    final rideStatusCounts = {
+      'all': periodRides.length,
+      'completed':
+          periodRides.where((ride) => ride['status'] == 'completed').length,
+      'cancelled':
+          periodRides.where((ride) => ride['status'] == 'cancelled').length,
+    };
+    final visibleRides = _rideHistoryStatus == 'all'
+        ? periodRides
+        : periodRides
+            .where((ride) => ride['status'] == _rideHistoryStatus)
+            .toList();
     final messagesByRideId = <String, List<Map<String, dynamic>>>{};
     for (final message in chatMessages) {
       final rideId = message['rideId']?.toString();
@@ -1416,6 +1563,32 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               ' - ${intl.DateFormat('y/MM/dd').format(_rideHistoryCustomRange!.end)}',
             ),
           ),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 16, 4),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              segments: [
+                ButtonSegment(
+                  value: 'all',
+                  label: Text('الكل (${rideStatusCounts['all']})'),
+                ),
+                ButtonSegment(
+                  value: 'completed',
+                  label: Text('مكتملة (${rideStatusCounts['completed']})'),
+                ),
+                ButtonSegment(
+                  value: 'cancelled',
+                  label: Text('ملغاة (${rideStatusCounts['cancelled']})'),
+                ),
+              ],
+              selected: {_rideHistoryStatus},
+              onSelectionChanged: (selection) {
+                setState(() => _rideHistoryStatus = selection.first);
+              },
+            ),
+          ),
+        ),
         const Divider(height: 1),
         Expanded(
           child: visibleRides.isEmpty
