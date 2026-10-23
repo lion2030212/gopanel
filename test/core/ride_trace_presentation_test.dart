@@ -42,6 +42,10 @@ void main() {
 
     expect(stops, hasLength(1));
     expect(
+      RideTracePresentation.waitingStops(points).single.duration,
+      const Duration(minutes: 2),
+    );
+    expect(
       RideTracePresentation.distanceMeters(stops.single, points[1].position),
       lessThan(1),
     );
@@ -54,6 +58,45 @@ void main() {
     ]);
 
     expect(RideTracePresentation.waitingLocations(points), isEmpty);
+  });
+
+  test('sums only qualifying stops away from the route endpoints', () {
+    final points = RideTracePresentation.parsePoints([
+      {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0, 'speedMps': 8},
+      {
+        'latitude': 30.005,
+        'longitude': 31,
+        'capturedAtMs': 60000,
+        'speedMps': 0.2,
+      },
+      {
+        'latitude': 30.0051,
+        'longitude': 31,
+        'capturedAtMs': 180000,
+        'speedMps': 0.2,
+      },
+      {
+        'latitude': 30.01,
+        'longitude': 31,
+        'capturedAtMs': 240000,
+        'speedMps': 8
+      },
+    ]);
+
+    expect(RideTracePresentation.inTripWaitingStops(points), hasLength(1));
+    expect(
+      RideTracePresentation.inTripWaitingDuration(points),
+      const Duration(minutes: 2),
+    );
+  });
+
+  test('returns no in-trip duration when fewer than two points are available',
+      () {
+    final points = RideTracePresentation.parsePoints([
+      {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0},
+    ]);
+
+    expect(RideTracePresentation.inTripWaitingDuration(points), isNull);
   });
 
   test('creates a route polyline and start, end, and waiting markers', () {

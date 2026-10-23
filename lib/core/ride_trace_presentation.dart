@@ -15,6 +15,13 @@ class RideTracePoint {
   final double? speedMps;
 }
 
+class RideTraceStop {
+  const RideTraceStop({required this.position, required this.duration});
+
+  final LatLng position;
+  final Duration duration;
+}
+
 class RideTracePresentation {
   static Set<Marker> markersForRoute(List<RideTracePoint> points) {
     if (points.isEmpty) return const {};
@@ -93,20 +100,26 @@ class RideTracePresentation {
     return points;
   }
 
-  static List<LatLng> waitingLocations(
+  static List<RideTraceStop> waitingStops(
     List<RideTracePoint> points, {
     double radiusMeters = 30,
     Duration minimumStop = const Duration(minutes: 2),
     double maximumSpeedMps = 0.8,
   }) {
-    final stops = <LatLng>[];
+    final stops = <RideTraceStop>[];
     var cluster = <RideTracePoint>[];
 
     void finishCluster() {
       if (cluster.length >= 2 &&
           cluster.last.capturedAtMs - cluster.first.capturedAtMs >=
               minimumStop.inMilliseconds) {
-        stops.add(cluster[cluster.length ~/ 2].position);
+        stops.add(RideTraceStop(
+          position: cluster[cluster.length ~/ 2].position,
+          duration: Duration(
+            milliseconds:
+                cluster.last.capturedAtMs - cluster.first.capturedAtMs,
+          ),
+        ));
       }
       cluster = [];
     }
@@ -132,6 +145,36 @@ class RideTracePresentation {
     }
     finishCluster();
     return stops;
+  }
+
+  static List<LatLng> waitingLocations(
+    List<RideTracePoint> points, {
+    double radiusMeters = 30,
+    Duration minimumStop = const Duration(minutes: 2),
+    double maximumSpeedMps = 0.8,
+  }) =>
+      waitingStops(
+        points,
+        radiusMeters: radiusMeters,
+        minimumStop: minimumStop,
+        maximumSpeedMps: maximumSpeedMps,
+      ).map((stop) => stop.position).toList();
+
+  static List<RideTraceStop> inTripWaitingStops(
+    List<RideTracePoint> points,
+  ) =>
+      waitingStops(points)
+          .where((stop) =>
+              distanceMeters(stop.position, points.first.position) > 30 &&
+              distanceMeters(stop.position, points.last.position) > 30)
+          .toList();
+
+  static Duration? inTripWaitingDuration(List<RideTracePoint> points) {
+    if (points.length < 2) return null;
+    return inTripWaitingStops(points).fold<Duration>(
+      Duration.zero,
+      (total, stop) => total + stop.duration,
+    );
   }
 
   static double distanceMeters(LatLng first, LatLng second) {

@@ -66,7 +66,32 @@ void main() {
           handler.resolve(Response(requestOptions: options, data: {
             'success': true,
             'rideId': 41,
-            'points': [],
+            'points': [
+              {
+                'latitude': 30,
+                'longitude': 31,
+                'capturedAtMs': 0,
+                'speedMps': 8,
+              },
+              {
+                'latitude': 30.005,
+                'longitude': 31,
+                'capturedAtMs': 60000,
+                'speedMps': 0.2,
+              },
+              {
+                'latitude': 30.0051,
+                'longitude': 31,
+                'capturedAtMs': 180000,
+                'speedMps': 0.2,
+              },
+              {
+                'latitude': 30.01,
+                'longitude': 31,
+                'capturedAtMs': 240000,
+                'speedMps': 8,
+              },
+            ],
           }));
           return;
         }
@@ -114,6 +139,7 @@ void main() {
           (request) => request.path == '/api/admin/riders/12/rides/41/route'),
       isTrue,
     );
-    expect(find.text('لا توجد نقاط GPS مسجلة لهذه الرحلة'), findsOneWidget);
+    expect(find.text('انتظار أثناء الرحلة'), findsOneWidget);
+    expect(find.text('2 دقيقة'), findsOneWidget);
   });
 }

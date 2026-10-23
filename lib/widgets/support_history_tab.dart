@@ -41,6 +41,9 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
   List<Map<String, dynamic>> _items = [];
   int _complainantCount = 0;
   int _complainedAgainstCount = 0;
+  int _staffAllCount = 0;
+  int _staffDriverCount = 0;
+  int _staffRiderCount = 0;
   int _page = 0;
   int _total = 0;
   int _requestId = 0;
@@ -81,6 +84,9 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
       _items = [];
       _complainantCount = 0;
       _complainedAgainstCount = 0;
+      _staffAllCount = 0;
+      _staffDriverCount = 0;
+      _staffRiderCount = 0;
       _complaintType = 'complainant';
       _selectedRecordId = null;
       _selectedRecord = null;
@@ -191,6 +197,7 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? rows.length;
       final categoryCounts = data['categoryCounts'];
+      final roleCounts = data['roleCounts'];
       setState(() {
         _items = reset ? rows : [..._items, ...rows];
         _page = page;
@@ -200,6 +207,11 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
               (categoryCounts['complainant'] as num?)?.toInt() ?? 0;
           _complainedAgainstCount =
               (categoryCounts['complainedAgainst'] as num?)?.toInt() ?? 0;
+        }
+        if (widget.adminId != null && roleCounts is Map) {
+          _staffAllCount = (roleCounts['all'] as num?)?.toInt() ?? 0;
+          _staffDriverCount = (roleCounts['driver'] as num?)?.toInt() ?? 0;
+          _staffRiderCount = (roleCounts['rider'] as num?)?.toInt() ?? 0;
         }
         _loading = false;
         _loadingMore = false;
@@ -633,10 +645,19 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
           Text('صاحب السجل', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 6),
           SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'all', label: Text('الكل')),
-              ButtonSegment(value: 'driver', label: Text('السائق')),
-              ButtonSegment(value: 'rider', label: Text('الراكب')),
+            segments: [
+              ButtonSegment(
+                value: 'all',
+                label: Text('الكل ($_staffAllCount)'),
+              ),
+              ButtonSegment(
+                value: 'driver',
+                label: Text('السائق ($_staffDriverCount)'),
+              ),
+              ButtonSegment(
+                value: 'rider',
+                label: Text('الراكب ($_staffRiderCount)'),
+              ),
             ],
             selected: {_partyRole},
             onSelectionChanged: (selection) {

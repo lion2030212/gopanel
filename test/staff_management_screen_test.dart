@@ -11,6 +11,39 @@ void main() {
       onRequest: (options, handler) {
         requests.add(options);
         if (options.method == 'GET' &&
+            options.path.endsWith('/sent-notifications')) {
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {
+              'items': [
+                {
+                  'id': 42,
+                  'category': 'promotion',
+                  'title': 'عرض خاص',
+                  'body': 'خصم على الرحلات',
+                  'createdAt': DateTime.now().toIso8601String(),
+                  'driverCount': 2,
+                  'riderCount': 3,
+                  'acceptedCount': 4,
+                  'acceptedDevices': 4,
+                  'failedCount': 1,
+                  'noTokenCount': 0,
+                  'readCount': 2,
+                },
+              ],
+              'hasMore': false,
+              'roleCounts': {'allCount': 1, 'driverCount': 1, 'riderCount': 1},
+              'categoryCounts': {
+                'allCount': 1,
+                'customerServiceCount': 0,
+                'promotionCount': 1,
+                'guidanceCount': 0,
+              },
+            },
+          ));
+          return;
+        }
+        if (options.method == 'GET' &&
             (options.path.startsWith('/api/admin/staff/') ||
                 options.path == '/api/admin/staff/ratings/general')) {
           final generalAdmin = options.path.endsWith('/general');
@@ -62,6 +95,9 @@ void main() {
                   'profileImageUrl':
                       'https://firebasestorage.googleapis.com/v0/b/godrive-d7f94.firebasestorage.app/o/staff-profiles%2F1%2Fstaff.png?alt=media&token=test',
                   'isActive': 1,
+                  'accountStatus': 'active',
+                  'presenceStatus': 'active',
+                  'lastOnlineAt': DateTime.now().toIso8601String(),
                 },
                 {
                   'id': 2,
@@ -73,8 +109,28 @@ void main() {
                   'role': 'employee',
                   'roleName': 'موظف',
                   'isActive': 1,
+                  'accountStatus': 'active',
+                  'presenceStatus': 'inactive',
+                  'lastOnlineAt': null,
+                },
+                {
+                  'id': 3,
+                  'username': 'sara',
+                  'fullName': 'سارة أحمد',
+                  'role': 'employee',
+                  'roleName': 'موظف',
+                  'isActive': 1,
+                  'accountStatus': 'suspended',
+                  'presenceStatus': 'suspended',
+                  'lastOnlineAt': DateTime.now().toIso8601String(),
                 },
               ],
+              'counts': {
+                'all': 3,
+                'active': 1,
+                'inactive': 1,
+                'suspended': 1,
+              },
               'roles': [
                 {'role': 'employee', 'name': 'موظف'},
                 {'role': 'supervisor', 'name': 'مشرف'},
@@ -96,6 +152,19 @@ void main() {
                 'role': data['role'],
                 'profileImageUrl': null,
               },
+            },
+          ));
+          return;
+        }
+        if (options.method == 'GET' &&
+            options.path.startsWith('/api/admin/support/history/')) {
+          final tickets = options.path.endsWith('/tickets');
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {
+              tickets ? 'tickets' : 'conversations': [],
+              'total': 8,
+              'roleCounts': {'all': 8, 'driver': 3, 'rider': 5},
             },
           ));
           return;
@@ -239,7 +308,7 @@ void main() {
     );
     expect(
       tester.getRect(find.byTooltip('تعديل البيانات')).center.dy,
-      closeTo(tester.getRect(find.byTooltip('تعطيل الحساب')).center.dy, 1),
+      closeTo(tester.getRect(find.byTooltip('إيقاف الحساب')).center.dy, 1),
     );
 
     final editTop = tester.getTopLeft(find.byTooltip('تعديل البيانات')).dy;
@@ -253,6 +322,165 @@ void main() {
     await tester.tap(find.byTooltip('تعديل البيانات'));
     await tester.pumpAndSettle();
     expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+  });
+
+  testWidgets('employee sent notifications show recipient and status counts',
+      (tester) async {
+    final requests = <RequestOptions>[];
+    await pumpStaffScreen(tester, createClient(requests));
+
+    await tester.tap(find.text('محمد علي'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('التنبيهات المرسلة'));
+    await tester.tap(find.text('التنبيهات المرسلة'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('أسبوع'), findsOneWidget);
+    expect(find.text('عرض خاص'), findsOneWidget);
+    expect(find.textContaining('سائقون 2 · ركاب 3 · مقروء 2'), findsOneWidget);
+    await tester.tap(find.text('عرض خاص'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('مقبول عبر FCM: 4 مستلم'), findsOneWidget);
+    expect(find.textContaining('فشل 1'), findsOneWidget);
+    expect(find.text('خدمة العملاء (0)'), findsOneWidget);
+    expect(find.text('توجيه (0)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SegmentedButton<String>),
+        matching: find.text('الكل (1)'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('السائق (1)'), findsOneWidget);
+    expect(find.text('الراكب (1)'), findsOneWidget);
+    final initialRequest = requests.firstWhere((request) =>
+      request.path == '/api/admin/staff/1/sent-notifications');
+    final weekStart = DateTime.parse(initialRequest.queryParameters['startAt'] as String);
+    final weekEnd = DateTime.parse(initialRequest.queryParameters['endAt'] as String);
+    expect(weekStart.weekday, DateTime.saturday);
+    expect(weekEnd.difference(weekStart), const Duration(days: 7));
+    expect(
+      requests.any((request) =>
+          request.path == '/api/admin/staff/1/sent-notifications'),
+      isTrue,
+    );
+
+    await tester.tap(find.text('الراكب (1)'));
+    await tester.pumpAndSettle();
+    expect(
+      requests.any((request) =>
+          request.path == '/api/admin/staff/1/sent-notifications' &&
+          request.queryParameters['role'] == 'rider'),
+      isTrue,
+    );
+
+    await tester.tap(find.text('عرض ترويجي (1)'));
+    await tester.pumpAndSettle();
+    expect(
+      requests.any((request) =>
+          request.path == '/api/admin/staff/1/sent-notifications' &&
+          request.queryParameters['role'] == 'rider' &&
+          request.queryParameters['category'] == 'promotion'),
+      isTrue,
+    );
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('اليوم').last);
+    await tester.pumpAndSettle();
+    final todayRequest = requests.lastWhere((request) =>
+        request.path == '/api/admin/staff/1/sent-notifications');
+    final todayStart = DateTime.parse(todayRequest.queryParameters['startAt'] as String);
+    final todayEnd = DateTime.parse(todayRequest.queryParameters['endAt'] as String);
+    expect(todayEnd.difference(todayStart), const Duration(days: 1));
+    expect(todayRequest.queryParameters['category'], 'promotion');
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('مدة محددة').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(DateRangePickerDialog), findsOneWidget);
+    await tester.tap(find.text('تطبيق').last);
+    await tester.pumpAndSettle();
+    final customRequest = requests.lastWhere((request) =>
+      request.path == '/api/admin/staff/1/sent-notifications');
+    final customStart = DateTime.parse(customRequest.queryParameters['startAt'] as String);
+    final customEnd = DateTime.parse(customRequest.queryParameters['endAt'] as String);
+    expect(customEnd.difference(customStart), const Duration(days: 1));
+    expect(customRequest.queryParameters['category'], 'promotion');
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('شهر').last);
+    await tester.pumpAndSettle();
+    final monthRequest = requests.lastWhere((request) =>
+      request.path == '/api/admin/staff/1/sent-notifications');
+    final monthStart = DateTime.parse(monthRequest.queryParameters['startAt'] as String);
+    final monthEnd = DateTime.parse(monthRequest.queryParameters['endAt'] as String);
+    expect(monthStart.day, 1);
+    expect(monthEnd.day, 1);
+    expect(monthStart.month == monthEnd.month, isFalse);
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('الكل').last);
+    await tester.pumpAndSettle();
+    final allRequest = requests.lastWhere((request) =>
+      request.path == '/api/admin/staff/1/sent-notifications');
+    expect(allRequest.queryParameters.containsKey('startAt'), isFalse);
+    expect(allRequest.queryParameters.containsKey('endAt'), isFalse);
+  });
+
+  testWidgets('staff status filters show counts and toggle account access',
+      (tester) async {
+    final requests = <RequestOptions>[];
+    await pumpStaffScreen(tester, createClient(requests));
+
+    expect(find.text('الكل (3)'), findsOneWidget);
+    expect(find.text('نشط (1)'), findsOneWidget);
+    expect(find.text('غير نشط (1)'), findsOneWidget);
+    expect(find.text('محظور / موقوف (1)'), findsOneWidget);
+
+    await tester.tap(find.text('نشط (1)'));
+    await tester.pumpAndSettle();
+    expect(
+      requests.any((request) =>
+          request.path == '/api/admin/staff' &&
+          request.queryParameters['status'] == 'active'),
+      isTrue,
+    );
+
+    await tester.tap(find.text('الكل (3)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('إجراءات الموظف').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إيقاف الحساب'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد'));
+    await tester.pumpAndSettle();
+
+    final statusRequest = requests.lastWhere((request) =>
+        request.method == 'PATCH' &&
+        request.path == '/api/admin/staff/1/status');
+    expect(statusRequest.data['status'], 'suspended');
+
+    final suspendedSegment = find.text('محظور / موقوف (1)');
+    await tester.ensureVisible(suspendedSegment);
+    await tester.tap(suspendedSegment);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('إجراءات الموظف').last);
+    await tester.pumpAndSettle();
+    expect(find.text('تفعيل الحساب'), findsOneWidget);
+    expect(find.text('تعطيل الحساب'), findsNothing);
+    await tester.tap(find.text('تفعيل الحساب'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد'));
+    await tester.pumpAndSettle();
+
+    final activationRequest = requests.lastWhere((request) =>
+      request.method == 'PATCH' &&
+      request.path == '/api/admin/staff/3/status');
+    expect(activationRequest.data['status'], 'active');
   });
 
   testWidgets('staff ratings tab shows employee and general-admin records',
@@ -313,6 +541,7 @@ void main() {
     expect(find.text('المحادثات'), findsOneWidget);
     expect(find.text('الشكاوى'), findsOneWidget);
 
+    await tester.ensureVisible(find.text('المحادثات'));
     await tester.tap(find.text('المحادثات'));
     await tester.pumpAndSettle();
     expect(
@@ -324,7 +553,10 @@ void main() {
     );
     expect(find.byType(SegmentedButton<String>), findsOneWidget);
     expect(find.byType(DropdownButton<String>), findsOneWidget);
-    await tester.tap(find.text('السائق').last);
+    expect(find.text('الكل (8)'), findsOneWidget);
+    expect(find.text('السائق (3)'), findsOneWidget);
+    expect(find.text('الراكب (5)'), findsOneWidget);
+    await tester.tap(find.text('السائق (3)'));
     await tester.pumpAndSettle();
     expect(
       requests.any((request) =>
@@ -348,6 +580,9 @@ void main() {
 
     await tester.tap(find.text('الشكاوى'));
     await tester.pumpAndSettle();
+    expect(find.text('الكل (8)'), findsOneWidget);
+    expect(find.text('السائق (3)'), findsOneWidget);
+    expect(find.text('الراكب (5)'), findsOneWidget);
     expect(
       requests.any((request) =>
           request.path == '/api/admin/support/history/tickets' &&

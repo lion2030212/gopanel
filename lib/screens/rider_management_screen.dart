@@ -1963,13 +1963,9 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     }
 
     final points = _routePoints;
-    final waitingStopCount = RideTracePresentation.waitingLocations(points)
-        .where((stop) =>
-            RideTracePresentation.distanceMeters(stop, points.first.position) >
-                30 &&
-            RideTracePresentation.distanceMeters(stop, points.last.position) >
-                30)
-        .length;
+    final interiorWaitingStops =
+        RideTracePresentation.inTripWaitingStops(points);
+    final inTripWait = RideTracePresentation.inTripWaitingDuration(points);
     final markers = RideTracePresentation.markersForRoute(points);
     final polylines = RideTracePresentation.polylinesForRoute(
       points,
@@ -1978,7 +1974,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
 
     return Column(
       children: [
-        _rideRouteSummary(ride, waitingStopCount),
+        _rideRouteSummary(ride, interiorWaitingStops.length, inTripWait),
         Expanded(
           child: GoogleMap(
             key: ValueKey('ride-route-${ride['rideId'] ?? ride['id']}'),
@@ -1999,7 +1995,11 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     );
   }
 
-  Widget _rideRouteSummary(Map<String, dynamic> ride, int waitingStops) {
+  Widget _rideRouteSummary(
+    Map<String, dynamic> ride,
+    int waitingStops,
+    Duration? inTripWait,
+  ) {
     final distance = double.tryParse(
       (ride['distance'] ?? ride['traceDistanceKm'])?.toString() ?? '',
     );
@@ -2011,38 +2011,77 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         : startedAt.difference(arrivedAt).inMinutes;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          _routeMetric('المسافة',
-              distance == null ? '--' : '${distance.toStringAsFixed(2)} كم'),
-          _routeMetric('مدة الرحلة',
-              duration == null ? '--' : '${duration.round()} دقيقة'),
-          _routeMetric(
-              'انتظار الالتقاء',
-              waitMinutes == null || waitMinutes < 0
-                  ? '--'
-                  : '$waitMinutes دقيقة'),
-          _routeMetric('توقفات GPS', '$waitingStops'),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columnCount = constraints.maxWidth < 560 ? 3 : 5;
+          final metricWidth =
+              (constraints.maxWidth - (columnCount - 1) * 8) / columnCount;
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              SizedBox(
+                width: metricWidth,
+                child: _routeMetric(
+                  'المسافة',
+                  distance == null ? '--' : '${distance.toStringAsFixed(2)} كم',
+                ),
+              ),
+              SizedBox(
+                width: metricWidth,
+                child: _routeMetric(
+                  'مدة الرحلة',
+                  duration == null ? '--' : '${duration.round()} دقيقة',
+                ),
+              ),
+              SizedBox(
+                width: metricWidth,
+                child: _routeMetric(
+                  'انتظار الالتقاء',
+                  waitMinutes == null || waitMinutes < 0
+                      ? '--'
+                      : '$waitMinutes دقيقة',
+                ),
+              ),
+              SizedBox(
+                width: metricWidth,
+                child: _routeMetric(
+                  'انتظار أثناء الرحلة',
+                  inTripWait == null ? '--' : _formatWaitDuration(inTripWait),
+                ),
+              ),
+              SizedBox(
+                width: metricWidth,
+                child: _routeMetric('توقفات GPS', '$waitingStops'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _routeMetric(String label, String value) => Expanded(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall),
-            const SizedBox(height: 3),
-            Text(value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall),
-          ],
-        ),
+  String _formatWaitDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    if (minutes < 60) return '$minutes دقيقة';
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    return remainingMinutes == 0 ? '$hours س' : '$hours س $remainingMinutes د';
+  }
+
+  Widget _routeMetric(String label, String value) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall),
+          const SizedBox(height: 3),
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall),
+        ],
       );
 
   DateTime? _routeDate(dynamic value) {

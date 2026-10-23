@@ -9,6 +9,7 @@ import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/staff_sent_notifications_tab.dart';
 import '../widgets/support_history_tab.dart';
 
 class StaffManagementScreen extends StatefulWidget {
@@ -38,11 +39,18 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _staff = [];
   List<Map<String, dynamic>> _roles = [];
+  Map<String, int> _statusCounts = {
+    'all': 0,
+    'active': 0,
+    'inactive': 0,
+    'suspended': 0,
+  };
   Map<String, dynamic>? _selectedStaff;
   bool _loading = true;
   bool _uploadingPhoto = false;
   String? _error;
   String _searchQuery = '';
+  String _status = 'all';
   final ImagePicker _imagePicker = ImagePicker();
   DashboardBackHandler? _dashboardBackHandler;
 
@@ -91,12 +99,22 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/admin/staff',
+        queryParameters: {'status': _status},
         options: _options,
       );
       final data = response.data ?? const {};
+      final counts = data['counts'];
       setState(() {
         _staff = _mapsFrom(data['staff']);
         _roles = _mapsFrom(data['roles']);
+        if (counts is Map) {
+          _statusCounts = {
+            'all': (counts['all'] as num?)?.toInt() ?? 0,
+            'active': (counts['active'] as num?)?.toInt() ?? 0,
+            'inactive': (counts['inactive'] as num?)?.toInt() ?? 0,
+            'suspended': (counts['suspended'] as num?)?.toInt() ?? 0,
+          };
+        }
         _loading = false;
       });
     } on DioException catch (error) {
@@ -364,15 +382,22 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     }
   }
 
-  Future<void> _deactivate(Map<String, dynamic> staff) async {
+  bool _isAccountBlocked(Map<String, dynamic> staff) =>
+      staff['accountStatus'] == 'suspended' ||
+      (staff['isActive'] != true && staff['isActive'] != 1);
+
+  Future<void> _toggleAccountAccess(Map<String, dynamic> staff) async {
+    final blocking = !_isAccountBlocked(staff);
+    final status = blocking ? 'suspended' : 'active';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          title: const Text('تعطيل حساب الموظف؟'),
-          content: Text(
-              'سيُمنع ${staff['username']} من تسجيل الدخول، مع الاحتفاظ بسجل إجراءاته.'),
+          title: Text(blocking ? 'إيقاف حساب الموظف؟' : 'تفعيل حساب الموظف؟'),
+          content: Text(blocking
+              ? 'سيُمنع ${staff['username']} من استخدام لوحة الإدارة.'
+              : 'سيُعاد تمكين ${staff['username']} من دخول لوحة الإدارة.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
@@ -380,7 +405,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('تعطيل الحساب'),
+              child: const Text('تأكيد'),
             ),
           ],
         ),
@@ -388,28 +413,30 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
     if (confirmed != true) return;
     try {
-      await _dio.delete('/api/admin/staff/${staff['id']}', options: _options);
+      await _dio.patch(
+        '/api/admin/staff/${staff['id']}/status',
+        data: {'status': status},
+        options: _options,
+      );
       await _load();
       if (_selectedStaff?['id']?.toString() == staff['id']?.toString()) {
-        setState(() => _selectedStaff = {...staff, 'isActive': false});
+        final matches = _staff
+            .where((item) => item['id']?.toString() == staff['id']?.toString());
+        final updatedStaff = matches.isNotEmpty
+            ? matches.first
+            : {
+                ...staff,
+                'accountStatus': status,
+                'isActive': !blocking,
+                'presenceStatus': blocking ? 'suspended' : 'inactive',
+              };
+        setState(() => _selectedStaff = updatedStaff);
       }
-      if (mounted) _showMessage('تم تعطيل الحساب');
-    } on DioException catch (error) {
-      _handleError(error, 'تعذر تعطيل الحساب');
-    }
-  }
-
-  Future<void> _activate(Map<String, dynamic> staff) async {
-    try {
-      await _dio.post('/api/admin/staff/${staff['id']}/activate',
-          options: _options);
-      await _load();
-      if (_selectedStaff?['id']?.toString() == staff['id']?.toString()) {
-        setState(() => _selectedStaff = {...staff, 'isActive': true});
+      if (mounted) {
+        _showMessage(blocking ? 'تم إيقاف الحساب' : 'تم تفعيل الحساب');
       }
-      if (mounted) _showMessage('تمت إعادة تفعيل الحساب');
     } on DioException catch (error) {
-      _handleError(error, 'تعذر تفعيل الحساب');
+      _handleError(error, 'تعذر تحديث حالة الحساب');
     }
   }
 
@@ -422,6 +449,12 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 
   String _roleName(Map<String, dynamic> staff) =>
       staff['roleName']?.toString() ?? staff['role']?.toString() ?? '';
+
+  String _statusName(Map<String, dynamic> staff) {
+    if (staff['accountStatus'] == 'suspended') return 'محظور / موقوف';
+    if (staff['isActive'] != true && staff['isActive'] != 1) return 'معطّل';
+    return staff['presenceStatus'] == 'active' ? 'نشط' : 'غير نشط';
+  }
 
   List<Map<String, dynamic>> get _visibleStaff {
     final query = _searchQuery.trim().toLowerCase();
@@ -489,6 +522,44 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth - 32),
+                child: Center(
+                  child: SegmentedButton<String>(
+                    segments: [
+                      ButtonSegment(
+                        value: 'all',
+                        label: Text('الكل (${_statusCounts['all']})'),
+                      ),
+                      ButtonSegment(
+                        value: 'active',
+                        label: Text('نشط (${_statusCounts['active']})'),
+                      ),
+                      ButtonSegment(
+                        value: 'inactive',
+                        label: Text('غير نشط (${_statusCounts['inactive']})'),
+                      ),
+                      ButtonSegment(
+                        value: 'suspended',
+                        label: Text(
+                          'محظور / موقوف (${_statusCounts['suspended']})',
+                        ),
+                      ),
+                    ],
+                    selected: {_status},
+                    onSelectionChanged: (selection) {
+                      setState(() => _status = selection.first);
+                      unawaited(_load());
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (_loading && _staff.isEmpty)
             const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_error != null && _staff.isEmpty)
@@ -521,7 +592,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   itemBuilder: (context, index) {
                     final staff = _visibleStaff[index];
                     final active =
-                        staff['isActive'] == true || staff['isActive'] == 1;
+                      staff['isActive'] == true || staff['isActive'] == 1;
+                    final blocked = _isAccountBlocked(staff);
                     final isCurrent =
                         widget.currentAdminId == 'staff-${staff['id']}';
                     final fullName = staff['fullName']?.toString().trim();
@@ -541,7 +613,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                             ? fullName!
                             : '${staff['username'] ?? ''}'),
                         subtitle: Text(
-                            '${staff['username'] ?? ''} · ${_roleName(staff)}${active ? '' : ' · معطّل'}'),
+                          '${staff['username'] ?? ''} · ${_roleName(staff)} · ${_statusName(staff)}'),
                         trailing: isCurrent
                             ? null
                             : PopupMenuButton<String>(
@@ -554,35 +626,27 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                     case 'password':
                                       unawaited(_resetPassword(staff));
                                       break;
-                                    case 'deactivate':
-                                      unawaited(_deactivate(staff));
-                                      break;
-                                    case 'activate':
-                                      unawaited(_activate(staff));
+                                    case 'toggle_access':
+                                      unawaited(_toggleAccountAccess(staff));
                                       break;
                                   }
                                 },
                                 itemBuilder: (_) => [
-                                  if (active)
+                                  if (active && !blocked)
                                     const PopupMenuItem(
                                       value: 'edit',
                                       child: Text('تعديل البيانات والرتبة'),
                                     ),
-                                  if (active)
+                                  if (active && !blocked)
                                     const PopupMenuItem(
                                       value: 'password',
                                       child: Text('إعادة تعيين كلمة المرور'),
                                     ),
-                                  if (active)
-                                    const PopupMenuItem(
-                                      value: 'deactivate',
-                                      child: Text('تعطيل الحساب'),
-                                    ),
-                                  if (!active)
-                                    const PopupMenuItem(
-                                      value: 'activate',
-                                      child: Text('إعادة تفعيل الحساب'),
-                                    ),
+                                  PopupMenuItem(
+                                    value: 'toggle_access',
+                                    child: Text(
+                                        blocked ? 'تفعيل الحساب' : 'إيقاف الحساب'),
+                                  ),
                                 ],
                               ),
                       ),
@@ -604,7 +668,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       );
 
   Widget _buildStaffProfile(Map<String, dynamic> staff) {
-    final active = staff['isActive'] == true || staff['isActive'] == 1;
+    final blocked = _isAccountBlocked(staff);
     final canEdit = _canEditStaff(staff);
     final imageUrl = staff['profileImageUrl'];
     final name = staff['fullName']?.toString().trim();
@@ -613,6 +677,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       const Tab(text: 'تسجيل الدخول'),
       const Tab(text: 'البيانات الشخصية'),
       const Tab(text: 'التقييمات'),
+      const Tab(text: 'التنبيهات المرسلة'),
     ];
     final tabViews = <Widget>[
       ListView(
@@ -620,7 +685,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         children: [
           _staffInformation('اسم المستخدم', staff['username']),
           _staffInformation('الرتبة الوظيفية', _roleName(staff)),
-          _staffInformation('حالة الحساب', active ? 'نشط' : 'معطّل'),
+          _staffInformation('حالة الحساب', _statusName(staff)),
           _staffInformation('تاريخ الإنشاء', staff['createdAt']),
         ],
       ),
@@ -670,6 +735,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         ],
       ),
       _StaffRatingsTab(
+        staffId: staffId,
+        client: _dio,
+        adminToken: widget.adminToken,
+        onSessionExpired: widget.onSessionExpired,
+      ),
+      StaffSentNotificationsTab(
+        key: ValueKey('sent-notifications-$staffId'),
         staffId: staffId,
         client: _dio,
         adminToken: widget.adminToken,
@@ -732,7 +804,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                               ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         Text(
-                          '${staff['username'] ?? ''} · ${_roleName(staff)}${active ? '' : ' · معطّل'}',
+                          '${staff['username'] ?? ''} · ${_roleName(staff)} · ${_statusName(staff)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -747,12 +819,11 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                     ),
                   if (widget.currentAdminId != 'staff-${staff['id']}')
                     IconButton(
-                      tooltip: active ? 'تعطيل الحساب' : 'إعادة تفعيل الحساب',
-                      onPressed: () => unawaited(
-                          active ? _deactivate(staff) : _activate(staff)),
-                      icon: Icon(active
-                          ? Icons.block_outlined
-                          : Icons.check_circle_outline),
+                        tooltip: blocked ? 'تفعيل الحساب' : 'إيقاف الحساب',
+                        onPressed: () => unawaited(_toggleAccountAccess(staff)),
+                        icon: Icon(blocked
+                          ? Icons.check_circle_outline
+                          : Icons.block_outlined),
                     ),
                   if (canEdit)
                     IconButton(

@@ -40,7 +40,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final Dio _dio;
   final Map<int, _DriverLocation> _drivers = {};
@@ -60,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
   MapHoverListener? _mapHoverListener;
   socket_io_client.Socket? _socket;
   Timer? _freshnessTimer;
+  Timer? _staffPresenceTimer;
   bool _isLoadingDrivers = false;
   int _maxDriverLocationAgeSeconds = 120;
   int _maxRiderLocationAgeSeconds = 120;
@@ -74,9 +75,17 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _dio = createAdminApiClient(
       onSessionExpired: widget.onLogout,
     );
+    if (widget.adminSession.id.startsWith('staff-')) {
+      unawaited(_sendStaffHeartbeat());
+      _staffPresenceTimer = Timer.periodic(
+        const Duration(minutes: 5),
+        (_) => unawaited(_sendStaffHeartbeat()),
+      );
+    }
     _freshnessTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => unawaited(_loadDrivers()),
@@ -88,13 +97,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _freshnessTimer?.cancel();
+    _staffPresenceTimer?.cancel();
     _socket?.dispose();
     _dio.close(force: true);
     _mapHoverListener?.dispose();
     _mapController?.dispose();
     _markerNotifier.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_sendStaffHeartbeat());
+    }
+  }
+
+  Future<void> _sendStaffHeartbeat() async {
+    if (!widget.adminSession.id.startsWith('staff-') ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    try {
+      await _dio.post<void>(
+        '/api/admin/staff/heartbeat',
+        options: Options(
+          headers: {'Authorization': 'Bearer ${widget.adminSession.token}'},
+        ),
+      );
+    } on DioException catch (_) {}
   }
 
   Future<void> _loadDrivers() async {
