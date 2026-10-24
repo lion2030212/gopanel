@@ -12,6 +12,7 @@ void main() {
           'driverNet': 9300,
           'commission': 3100,
           'commissionCollected': 2800,
+          'cashCollected': 5200,
         },
         'comparison': {
           'completedTrips': 1107,
@@ -19,6 +20,7 @@ void main() {
           'driverNet': 8250,
           'commission': 2750,
           'commissionCollected': 2500,
+          'cashCollected': 4500,
         },
         'growth': {'completedTrips': 12, 'commission': 12.7},
         'chart': {
@@ -41,6 +43,7 @@ void main() {
           'driverNet': 9300,
           'commission': 3100,
           'commissionCollected': 2800,
+          'cashCollected': 5200,
           'riderWalletAdded': 400,
           'riderWalletDeducted': 75,
           'cancellationFeesCollected': 125,
@@ -121,6 +124,18 @@ void main() {
     expect(find.text('الرحلات المكتملة'), findsOneWidget);
     expect(find.text('1,240'), findsOneWidget);
     expect(find.textContaining('+12.0%'), findsOneWidget);
+    final cashCollectionCard = find.ancestor(
+      of: find.text('التحصيل النقدي'),
+      matching: find.byType(Container),
+    ).first;
+    expect(cashCollectionCard, findsOneWidget);
+    expect(
+      find.descendant(
+        of: cashCollectionCard,
+        matching: find.textContaining('الفترة السابقة:'),
+      ),
+      findsOneWidget,
+    );
     await tester.drag(find.byType(ListView).first, const Offset(0, -450));
     await tester.pumpAndSettle();
     expect(find.text('حركة الطلب'), findsOneWidget);
@@ -133,6 +148,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('إجمالي مدفوعات الركاب'), findsOneWidget);
+    expect(find.text('التحصيل النقدي'), findsOneWidget);
     expect(find.text('حركات محفظة الركاب'), findsOneWidget);
     expect(find.text('أحمد'), findsOneWidget);
     expect(find.textContaining('staff-3'), findsOneWidget);

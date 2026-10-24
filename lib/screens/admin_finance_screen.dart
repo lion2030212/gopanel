@@ -302,6 +302,13 @@ class _AdminFinanceScreenState extends State<AdminFinanceScreen>
                 color: const Color(0xff4e7d39),
                 comparison: _numberValue(comparison['commissionCollected']),
               ),
+              _MetricData(
+                title: 'التحصيل النقدي',
+                value: _money(totals['cashCollected']),
+                icon: Icons.payments_outlined,
+                color: const Color(0xff8a6130),
+                comparison: _numberValue(comparison['cashCollected']),
+              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -331,30 +338,47 @@ class _AdminFinanceScreenState extends State<AdminFinanceScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              const Text('حركة الطلب',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-              SegmentedButton<String>(
-                showSelectedIcon: false,
-                segments: _chartPeriods.entries
-                    .map((entry) => ButtonSegment(
-                          value: entry.key,
-                          label: Text(entry.value),
-                        ))
-                    .toList(),
-                selected: {_chartPeriod},
-                onSelectionChanged: (selection) =>
-                    _selectChartPeriod(selection.first),
-              ),
-            ],
-          ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const title = Text('حركة الطلب',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700));
+                final periodSelector = SegmentedButton<String>(
+                  showSelectedIcon: false,
+                  segments: _chartPeriods.entries
+                      .map((entry) => ButtonSegment(
+                            value: entry.key,
+                            label: Text(entry.value),
+                          ))
+                      .toList(),
+                  selected: {_chartPeriod},
+                  onSelectionChanged: (selection) =>
+                      _selectChartPeriod(selection.first),
+                );
+                if (constraints.maxWidth < 620) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Align(alignment: Alignment.centerRight, child: title),
+                      const SizedBox(height: 8),
+                      Center(child: periodSelector),
+                    ],
+                  );
+                }
+                return SizedBox(
+                  height: 40,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      const Align(alignment: Alignment.centerRight, child: title),
+                      Center(child: periodSelector),
+                    ],
+                  ),
+                );
+              },
+            ),
           const SizedBox(height: 12),
           Wrap(
+              alignment: WrapAlignment.center,
             spacing: 4,
             runSpacing: 4,
             children: [
@@ -439,6 +463,7 @@ class _AdminFinanceScreenState extends State<AdminFinanceScreen>
               _MetricData(title: 'صافي السائقين', value: _money(totals['driverNet']), icon: Icons.local_taxi_outlined, color: const Color(0xffb35b24)),
               _MetricData(title: 'إجمالي العمولة', value: _money(totals['commission']), icon: Icons.account_balance_outlined, color: const Color(0xff665c9a)),
               _MetricData(title: 'العمولة المتحصلة', value: _money(totals['commissionCollected']), icon: Icons.task_alt_outlined, color: const Color(0xff4e7d39)),
+              _MetricData(title: 'التحصيل النقدي', value: _money(totals['cashCollected']), icon: Icons.payments_outlined, color: const Color(0xff8a6130)),
               _MetricData(title: 'إضافة لمحافظ الركاب', value: _money(totals['riderWalletAdded']), icon: Icons.add_circle_outline, color: const Color(0xff157a67)),
               _MetricData(title: 'خصم من محافظ الركاب', value: _money(totals['riderWalletDeducted']), icon: Icons.remove_circle_outline, color: const Color(0xffc3524a)),
               _MetricData(title: 'رسوم الإلغاء المحصلة', value: _money(totals['cancellationFeesCollected']), icon: Icons.event_busy_outlined, color: const Color(0xff8a6130)),
@@ -622,12 +647,13 @@ class _PeriodSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        alignment: Alignment.centerRight,
+      alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
         ),
         child: Wrap(
+          alignment: WrapAlignment.center,
           spacing: 8,
           runSpacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,

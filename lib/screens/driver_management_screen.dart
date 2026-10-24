@@ -10,6 +10,7 @@ import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/driver_smart_report_tab.dart';
 import '../widgets/support_history_tab.dart';
 import '../widgets/user_notifications_tab.dart';
 
@@ -955,7 +956,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         : <String, dynamic>{};
 
     return DefaultTabController(
-      length: 9,
+      length: 10,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1005,6 +1006,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               Tab(text: 'التقييمات'),
               Tab(text: 'الشكاوى'),
               Tab(text: 'محادثات خدمة العملاء'),
+              Tab(text: 'التقرير الذكي'),
               Tab(text: 'الإشعارات'),
             ],
           ),
@@ -1038,6 +1040,14 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                       int.tryParse(profile['userId']?.toString() ?? '') ?? 0,
                   userRole: 'driver',
                   ticketsMode: false,
+                  onSessionExpired: widget.onSessionExpired,
+                ),
+                DriverSmartReportTab(
+                  key: ValueKey('driver-smart-report-${profile['driverId']}'),
+                  client: _dio,
+                  adminToken: widget.adminToken,
+                  driverId:
+                      int.tryParse(profile['driverId']?.toString() ?? '') ?? 0,
                   onSessionExpired: widget.onSessionExpired,
                 ),
                 UserNotificationsTab(
