@@ -451,7 +451,7 @@ class _SupportHistoryTabState extends State<SupportHistoryTab> {
         : value is String
             ? DateTime.tryParse(value)?.toLocal()
             : null;
-    return date == null ? '' : intl.DateFormat('y/MM/dd HH:mm').format(date);
+    return date == null ? '' : intl.DateFormat('y/MM/dd  HH:mm').format(date);
   }
 
   String _personValue(dynamic value) {

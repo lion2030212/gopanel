@@ -24,6 +24,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:intl/intl.dart' as intl;
 
 void main() {
   testWidgets('user notifications filter by period and category counts',
@@ -1563,6 +1564,16 @@ void main() {
       expect(find.text('الرقم القومي'), findsOneWidget);
       expect(find.text('رقم رخصة القيادة'), findsOneWidget);
       expect(find.text('رقم الشاسيه'), findsOneWidget);
+        final vehicleCategory =
+          find.byKey(const ValueKey('newDriverVehicleCategory'));
+        await tester.ensureVisible(vehicleCategory);
+        await tester.tap(vehicleCategory);
+      await tester.pumpAndSettle();
+      expect(find.text('GoFast سوزوكي'), findsWidgets);
+      expect(find.text('GoTalabat دليفيرى'), findsOneWidget);
+      expect(find.text('GoScooter المنجز'), findsOneWidget);
+      await tester.tap(find.text('GoFast سوزوكي').last);
+      await tester.pumpAndSettle();
       final nationalIdField = find.byType(TextFormField).at(1);
       await tester.ensureVisible(nationalIdField);
       await tester.enterText(nationalIdField, '123456789012345678901');
@@ -2725,6 +2736,8 @@ void main() {
   testWidgets(
       'driver management searches, filters and opens schema-backed tabs',
       (tester) async {
+    const driverCreatedAt = '2026-10-25T14:05:00Z';
+    const driverLocationUpdatedAt = '2026-10-24T13:04:00Z';
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final daysSinceSaturday = (now.weekday + 1) % 7;
@@ -2786,6 +2799,8 @@ void main() {
               'userRating': '4.75',
               'driverRating': '4.80',
               'reputationPoints': 485,
+              'driverCreatedAt': driverCreatedAt,
+              'lastLocationUpdate': driverLocationUpdatedAt,
             },
             'rides': [
               {
@@ -3025,6 +3040,18 @@ void main() {
     expect(find.text('البيانات الشخصية'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('نعم'), findsOneWidget);
+    expect(
+      find.text(intl.DateFormat('y/MM/dd  HH:mm').format(
+        DateTime.parse(driverCreatedAt).toLocal(),
+      )),
+      findsOneWidget,
+    );
+    expect(
+      find.text(intl.DateFormat('y/MM/dd  HH:mm').format(
+        DateTime.parse(driverLocationUpdatedAt).toLocal(),
+      )),
+      findsOneWidget,
+    );
     final driverNotificationsTab = find.byType(Tab).last;
     await tester.ensureVisible(driverNotificationsTab);
     await tester.tap(driverNotificationsTab);

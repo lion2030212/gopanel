@@ -269,7 +269,7 @@ class _StaffSentNotificationsTabState extends State<StaffSentNotificationsTab> {
 
   String _formatDate(Object? value) {
     final date = DateTime.tryParse(value?.toString() ?? '')?.toLocal();
-    return date == null ? '' : intl.DateFormat('y/MM/dd HH:mm').format(date);
+    return date == null ? '' : intl.DateFormat('y/MM/dd  HH:mm').format(date);
   }
 
   String _selectedRangeLabel() {

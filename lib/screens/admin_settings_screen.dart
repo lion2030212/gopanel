@@ -25,6 +25,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     'comfort': 'مريح',
     'scooter': 'سكوتر',
   };
+  static const _searchCategories = <String, String>{
+    'standard': 'GoFast سوزوكي',
+    'comfort': 'GoTalabat دليفيرى',
+    'scooter': 'GoScooter المنجز',
+  };
   static const _pricingFields = <String, String>{
     'baseFare': 'الأجرة الأساسية',
     'perKmRate': 'حساب الكيلومتر',
@@ -49,10 +54,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
 
   late final Dio _dio;
   final _pricingControllers = <String, Map<String, TextEditingController>>{};
-  final _searchControllers = <String, TextEditingController>{};
+  final _searchControllers = <String, Map<String, TextEditingController>>{};
+  final _searchVisibility = <String, bool>{};
   final _walletControllers = <String, TextEditingController>{};
   final _versionControllers = <String, TextEditingController>{};
   String _selectedCategory = 'standard';
+  String _selectedSearchCategory = 'standard';
   String? _message;
   bool _messageIsError = false;
   bool _isLoading = true;
@@ -70,10 +77,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       _pricingControllers[category] = {
         for (final field in _pricingFields.keys) field: TextEditingController(),
       };
+      _searchControllers[category] = {
+        for (final field in _searchFields.keys) field: TextEditingController(),
+      };
+      _searchVisibility[category] = true;
     }
-    _searchControllers.addAll({
-      for (final field in _searchFields.keys) field: TextEditingController(),
-    });
     _walletControllers.addAll({
       for (final field in _walletFields.keys) field: TextEditingController(),
     });
@@ -90,8 +98,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         controller.dispose();
       }
     }
-    for (final controller in _searchControllers.values) {
-      controller.dispose();
+    for (final controllers in _searchControllers.values) {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
     }
     for (final controller in _walletControllers.values) {
       controller.dispose();
@@ -147,8 +157,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       }
     }
     final search = _asMap(settings['search']);
-    for (final field in _searchFields.keys) {
-      _searchControllers[field]!.text = search[field]?.toString() ?? '';
+    final searchCategories = _asMap(search['categories']);
+    for (final category in _categories.keys) {
+      final values = _asMap(searchCategories[category]);
+      for (final field in _searchFields.keys) {
+        _searchControllers[category]![field]!.text =
+            (values[field] ?? search[field])?.toString() ?? '';
+      }
+      _searchVisibility[category] =
+          values['visible'] is bool ? values['visible'] as bool : true;
     }
     final wallet = _asMap(settings['wallet']);
     for (final field in _walletFields.keys) {
@@ -169,12 +186,50 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
         isNonNegative: true,
       );
 
-  Future<void> _saveSearch() => _save(
-        '/api/admin/settings/search',
-        _searchControllers,
-        'تم حفظ إعدادات البحث',
-        isPositive: true,
+  Future<void> _saveSearchCategory() async {
+    final category = _selectedSearchCategory;
+    final controllers = _searchControllers[category]!;
+    final values = <String, dynamic>{};
+    for (final field in _searchFields.keys) {
+      final text = controllers[field]!.text.trim();
+      final value = double.tryParse(text);
+      if (!RegExp(r'^\d{1,8}(?:\.\d{1,2})?$').hasMatch(text) ||
+          value == null ||
+          !value.isFinite ||
+          value <= 0) {
+        _showMessage('تحقق من القيم المدخلة قبل الحفظ', true);
+        return;
+      }
+      values[field] = text;
+    }
+    values['visible'] = _searchVisibility[category];
+
+    setState(() {
+      _isSaving = true;
+      _message = null;
+    });
+    try {
+      final response = await _dio.patch<Map<String, dynamic>>(
+        '/api/admin/settings/search/$category',
+        data: values,
+        options: _requestOptions,
       );
+      final settings = response.data?['settings'];
+      if (settings is Map) _applySettings(Map<String, dynamic>.from(settings));
+      if (mounted) {
+        _showMessage(
+            'تم حفظ إعدادات بحث ${_searchCategories[category]}', false);
+      }
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 401) {
+        widget.onSessionExpired(_messageFrom(error, 'جلسة الإدارة غير صالحة'));
+      } else {
+        _showMessage(_messageFrom(error, 'تعذر حفظ إعدادات البحث'), true);
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
 
   Future<void> _saveWallet() => _save(
         '/api/admin/settings/wallet',
@@ -354,11 +409,15 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
       padding: const EdgeInsets.all(20),
       children: [
         DropdownButtonFormField<String>(
+          key: const ValueKey('pricingCategory'),
           initialValue: _selectedCategory,
           decoration: const InputDecoration(labelText: 'فئة المركبة'),
           items: [
             for (final entry in _categories.entries)
-              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              DropdownMenuItem(
+                value: entry.key,
+                child: Text(_searchCategories[entry.key]!),
+              ),
           ],
           onChanged: _isSaving
               ? null
@@ -381,7 +440,38 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _buildFields(context, _searchFields, _searchControllers),
+        DropdownButtonFormField<String>(
+          key: const ValueKey('searchCategory'),
+          initialValue: _selectedSearchCategory,
+          decoration: const InputDecoration(labelText: 'فئة المركبة'),
+          items: [
+            for (final entry in _searchCategories.entries)
+              DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+          ],
+          onChanged: _isSaving
+              ? null
+              : (value) => setState(
+                    () => _selectedSearchCategory = value ?? 'standard',
+                  ),
+        ),
+        const SizedBox(height: 16),
+        _buildFields(
+          context,
+          _searchFields,
+          _searchControllers[_selectedSearchCategory]!,
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile.adaptive(
+          key: ValueKey('searchVisibility-$_selectedSearchCategory'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('إظهار الفئة للراكب'),
+          value: _searchVisibility[_selectedSearchCategory] ?? true,
+          onChanged: _isSaving || _isLoading
+              ? null
+              : (value) => setState(
+                    () => _searchVisibility[_selectedSearchCategory] = value,
+                  ),
+        ),
         const SizedBox(height: 20),
         Container(
           padding: const EdgeInsets.all(16),
@@ -402,14 +492,14 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                   'تُطابق فئة المركبة المطلوبة، وتُستبعد العروض السابقة والجارية.'),
               const SizedBox(height: 6),
               const Text(
-                  'داخل النطاق القريب تُقدَّم السمعة ثم المسافة، وخارجه تُقدَّم المسافة ثم السمعة.'),
+                  'تُطبق مسافة البحث ونطاق أولوية القرب بشكل مستقل لكل فئة. داخل النطاق القريب تُقدَّم السمعة ثم المسافة، وخارجه تُقدَّم المسافة ثم السمعة.'),
             ],
           ),
         ),
         const SizedBox(height: 20),
         _buildSaveButton(
-          label: 'حفظ إعدادات البحث',
-          onPressed: _isSaving ? null : _saveSearch,
+          label: 'حفظ إعدادات الفئة',
+          onPressed: _isSaving ? null : _saveSearchCategory,
         ),
       ],
     );

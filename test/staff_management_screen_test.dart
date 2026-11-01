@@ -3,6 +3,12 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:admin_panel/widgets/dashboard_navigation.dart';
+import 'package:intl/intl.dart' as intl;
+
+final _sampleTimestamp = DateTime.now().toIso8601String();
+
+String _formattedSampleTimestamp() => intl.DateFormat('y/MM/dd  HH:mm')
+  .format(DateTime.parse(_sampleTimestamp).toLocal());
 
 void main() {
   Dio createClient(List<RequestOptions> requests) {
@@ -61,7 +67,7 @@ void main() {
                   'raterName': 'سائق',
                   'stars': generalAdmin ? 4 : 5,
                   'comment': generalAdmin ? 'جيد' : 'ممتاز',
-                  'createdAt': DateTime.now().toIso8601String(),
+                  'createdAt': _sampleTimestamp,
                 },
                 {
                   'id': 2,
@@ -71,7 +77,7 @@ void main() {
                   'raterName': 'سائق آخر',
                   'stars': generalAdmin ? 2 : 1,
                   'comment': generalAdmin ? 'يحتاج تحسين' : 'ضعيف',
-                  'createdAt': DateTime.now().toIso8601String(),
+                  'createdAt': _sampleTimestamp,
                 },
               ],
             },
@@ -112,6 +118,7 @@ void main() {
                   'accountStatus': 'active',
                   'presenceStatus': 'inactive',
                   'lastOnlineAt': null,
+                  'createdAt': _sampleTimestamp,
                 },
                 {
                   'id': 3,
@@ -239,6 +246,7 @@ void main() {
     expect(find.byTooltip('العودة للقائمة'), findsOneWidget);
     expect(find.text('تسجيل الدخول'), findsOneWidget);
     expect(find.text('البيانات الشخصية'), findsOneWidget);
+    expect(find.text(_formattedSampleTimestamp()), findsOneWidget);
     expect(
       Directionality.of(tester.element(find.text('ليلى حسن'))),
       TextDirection.rtl,
@@ -494,7 +502,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('4.5 من 5'), findsOneWidget);
-    expect(find.textContaining('محادثة #19'), findsOneWidget);
+    expect(
+      find.textContaining('محادثة #19 · ${_formattedSampleTimestamp()}'),
+      findsOneWidget,
+    );
     expect(find.text('ممتاز'), findsOneWidget);
     expect(find.text('1 نجمة (1)'), findsOneWidget);
     expect(find.text('الكل (2)'), findsOneWidget);

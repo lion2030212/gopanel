@@ -1847,11 +1847,24 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       value is num ||
       (value is String && RegExp(r'^[+\-\d\s.,:/]+$').hasMatch(value));
 
+  String _formatDate(DateTime date) =>
+      intl.DateFormat('y/MM/dd  HH:mm').format(date.toLocal());
+
   String _displayValue(String key, dynamic value) {
     const booleanFields = {'isActive', 'isOnline', 'userIsOnline'};
     if (value is bool || booleanFields.contains(key)) {
       if (value == true || value == 1 || value.toString() == '1') return 'نعم';
       if (value == false || value == 0 || value.toString() == '0') return 'لا';
+    }
+    if (key == 'capturedAtMs' && value is num) {
+      return _formatDate(DateTime.fromMillisecondsSinceEpoch(value.toInt()));
+    }
+    if (key.endsWith('At') ||
+      key == 'createdAt' ||
+      key == 'updatedAt' ||
+      key == 'lastLocationUpdate') {
+      final date = value is DateTime ? value : DateTime.tryParse('$value');
+      if (date != null) return _formatDate(date);
     }
     final text = value.toString();
     const labels = {
@@ -2074,12 +2087,23 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
                 _field('chassisNumber', 'رقم الشاسيه', required: true),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  key: const ValueKey('newDriverVehicleCategory'),
+                  isExpanded: true,
                   initialValue: _vehicleCategory,
                   decoration: const InputDecoration(labelText: 'فئة المركبة'),
-                  items: const [
-                    DropdownMenuItem(value: 'standard', child: Text('اقتصادي')),
-                    DropdownMenuItem(value: 'comfort', child: Text('مميز')),
-                    DropdownMenuItem(value: 'scooter', child: Text('سكوتر')),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'standard',
+                      child: Text(_isEdit ? 'اقتصادي' : 'GoFast سوزوكي'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'comfort',
+                      child: Text(_isEdit ? 'مميز' : 'GoTalabat دليفيرى'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'scooter',
+                      child: Text(_isEdit ? 'سكوتر' : 'GoScooter المنجز'),
+                    ),
                   ],
                   onChanged: (value) => setState(
                       () => _vehicleCategory = value ?? _vehicleCategory),

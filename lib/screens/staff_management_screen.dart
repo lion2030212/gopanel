@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:image_picker/image_picker.dart';
 
 import '../core/admin_api_client.dart';
@@ -11,6 +12,18 @@ import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/staff_sent_notifications_tab.dart';
 import '../widgets/support_history_tab.dart';
+
+String? _formatStaffDate(Object? value) {
+  final text = value?.toString();
+  if (text == null) return null;
+  final normalized = text.contains(' ')
+    ? text.replaceFirst(' ', 'T')
+    : text;
+  final date = DateTime.tryParse(normalized);
+  return date == null
+    ? text
+    : intl.DateFormat('y/MM/dd  HH:mm').format(date.toLocal());
+}
 
 class StaffManagementScreen extends StatefulWidget {
   const StaffManagementScreen({
@@ -686,7 +699,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           _staffInformation('اسم المستخدم', staff['username']),
           _staffInformation('الرتبة الوظيفية', _roleName(staff)),
           _staffInformation('حالة الحساب', _statusName(staff)),
-          _staffInformation('تاريخ الإنشاء', staff['createdAt']),
+            _staffInformation(
+              'تاريخ الإنشاء', _formatStaffDate(staff['createdAt'])),
         ],
       ),
       ListView(
@@ -1094,7 +1108,7 @@ class _StaffRatingsTabState extends State<_StaffRatingsTab> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                                '$raterRole · $interaction #${rating['interactionId']} · ${rating['createdAt'] ?? ''}'),
+                                '$raterRole · $interaction #${rating['interactionId']} · ${_formatStaffDate(rating['createdAt']) ?? ''}'),
                             if (rating['comment']?.toString().isNotEmpty ==
                                 true)
                               Text(rating['comment'].toString()),
