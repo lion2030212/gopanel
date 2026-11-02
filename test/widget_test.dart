@@ -15,6 +15,7 @@ import 'package:admin_panel/screens/ride_history_screen.dart';
 import 'package:admin_panel/screens/staff_management_screen.dart';
 import 'package:admin_panel/widgets/admin_drawer.dart';
 import 'package:admin_panel/widgets/dashboard_navigation.dart';
+import 'package:admin_panel/widgets/gotalabat_ride_details_section.dart';
 import 'package:admin_panel/widgets/map_marker_details_card.dart';
 import 'package:admin_panel/widgets/map_stats_overlay.dart';
 import 'package:admin_panel/widgets/support_history_tab.dart';
@@ -1564,10 +1565,10 @@ void main() {
       expect(find.text('الرقم القومي'), findsOneWidget);
       expect(find.text('رقم رخصة القيادة'), findsOneWidget);
       expect(find.text('رقم الشاسيه'), findsOneWidget);
-        final vehicleCategory =
+      final vehicleCategory =
           find.byKey(const ValueKey('newDriverVehicleCategory'));
-        await tester.ensureVisible(vehicleCategory);
-        await tester.tap(vehicleCategory);
+      await tester.ensureVisible(vehicleCategory);
+      await tester.tap(vehicleCategory);
       await tester.pumpAndSettle();
       expect(find.text('GoFast سوزوكي'), findsWidgets);
       expect(find.text('GoTalabat دليفيرى'), findsOneWidget);
@@ -1599,6 +1600,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(createdDriver?['nationalId'], '1');
       expect(createdDriver?['driverLicenseNumber'], 'DL-123');
+      expect(createdDriver?['vehicleCategory'], 'standard');
       await tester.pumpAndSettle();
 
       navigationKey.currentState!.pushNamed(DashboardNavigation.ridersRoute);
@@ -1818,6 +1820,29 @@ void main() {
     expect(selectedDestination, AdminDestination.supportTickets);
   });
 
+  testWidgets('GoTalabat image load failure displays a fallback',
+      (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: GotalabatRideDetailsSection(
+          ride: {
+            'deliveryDescription': 'مستندات',
+            'deliveryImageUrl': 'https://example.test/order.jpg',
+          },
+        ),
+      ),
+    ));
+
+    final image = tester.widget<Image>(find.byType(Image));
+    final fallback = image.errorBuilder!(
+      tester.element(find.byType(Image)),
+      Exception('image unavailable'),
+      StackTrace.current,
+    );
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: fallback)));
+    expect(find.text('تعذر تحميل صورة الطلب'), findsOneWidget);
+  });
+
   testWidgets('ride history shows colored groups and guarded ride actions',
       (tester) async {
     var activeStatus = 'in_progress';
@@ -1834,6 +1859,7 @@ void main() {
           'riderPhone': '+201000000007',
           'driverName': 'أحمد سائق',
           'driverPhone': '+201000000009',
+          'vehicleCategory': 'standard',
           'carModel': 'سيدان',
           'carColor': 'أبيض',
           'licensePlate': 'ABC-123',
@@ -1853,6 +1879,18 @@ void main() {
           'completedByRole': status == 'completed' ? 'manager' : null,
           'canReverseSettlement': status == 'completed' && !settlementReversed,
           'riderRefundAmount': status == 'completed' ? 50 : 0,
+          if (rideId == 41) ...{
+            'deliveryDescription': 'مستندات وملابس',
+            'pickupRegion': 'مدينة نصر',
+            'pickupLandmark': 'شارع النصر',
+            'dropoffRegion': 'وسط البلد',
+            'dropoffLandmark': 'ميدان التحرير',
+            'recipientName': 'سارة محمد',
+            'recipientPhone': '+201000000123',
+            'deliveryPayer': 'recipient',
+            'deliveryPaymentCollected': '25.00',
+            'deliveryPaymentCollectedAt': '2026-10-10T10:30:00Z',
+          },
           'settlementReversedAt':
               settlementReversed ? '2026-10-11 10:00:00' : null,
           'reversalReason': settlementReversed ? 'تصحيح' : null,
@@ -2040,6 +2078,12 @@ void main() {
     expect(find.byIcon(Icons.arrow_back), findsOneWidget);
     expect(find.text('محمد راكب'), findsOneWidget);
     expect(find.text('أحمد سائق'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('مستندات وملابس'), findsOneWidget);
+    expect(find.text('سارة محمد'), findsOneWidget);
+    expect(find.text('المبلغ المحصل'), findsOneWidget);
+    expect(find.text('25.00 ج.م'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('نقطة الانطلاق'),
       200,
@@ -2096,6 +2140,12 @@ void main() {
     await tester.tap(find.text('رحلة #52'));
     await tester.pumpAndSettle();
     expect(find.text('عكس التسوية'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('فئة المركبة'),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('GoFast سوزوكي'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('منفذ إنهاء الرحلة'),
       200,
@@ -2162,6 +2212,8 @@ void main() {
                 'ridesCount': 1,
                 'isActive': 1,
                 'accountStatus': 'active',
+                'isOnline': 1,
+                'lastOnlineAt': now.toIso8601String(),
               },
             ],
             'total': 1,
@@ -2170,6 +2222,14 @@ void main() {
               'active': 1,
               'inactive': 2,
               'suspended': 1,
+            },
+            'acquisitionCounts': {
+              'all': 12,
+              'today': 2,
+              'yesterday': 1,
+              'week': 7,
+              'month': 9,
+              'custom': 3,
             },
           }));
           return;
@@ -2192,7 +2252,17 @@ void main() {
               {
                 'rideId': 41,
                 'status': 'completed',
+                'vehicleCategory': 'standard',
                 'fare': '25.00',
+                'deliveryDescription': 'طرد إلكترونيات',
+                'pickupRegion': 'المعادي',
+                'pickupLandmark': 'شارع 9',
+                'dropoffRegion': 'مصر الجديدة',
+                'dropoffLandmark': 'ميدان المحكمة',
+                'recipientName': 'ليلى أحمد',
+                'recipientPhone': '+201000000321',
+                'deliveryPayer': 'sender',
+                'deliveryPaymentCollected': '0.00',
                 'createdAt':
                     today.add(const Duration(hours: 12)).toIso8601String(),
               },
@@ -2448,16 +2518,70 @@ void main() {
     ));
     await tester.pumpAndSettle();
     expect(find.text('أحمد راكب'), findsOneWidget);
-    expect(find.text('الكل (4)'), findsOneWidget);
+    expect(find.text('الكل (12)'), findsOneWidget);
+    expect(find.text('اليوم (2)'), findsOneWidget);
+    expect(find.text('متصل'), findsOneWidget);
+    expect(find.textContaining('آخر ظهور:'), findsOneWidget);
     expect(find.text('نشط (1)'), findsOneWidget);
     expect(find.text('غير نشط (2)'), findsOneWidget);
     expect(find.text('موقوف (1)'), findsOneWidget);
+    await tester.tap(find.text('الأسبوع (7)'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['createdPeriod'], 'week');
+    await tester.tap(find.text('آخر ظهور'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['sortBy'], 'lastSeen');
+    final customPeriod = find.text('مدة محددة (3)');
+    await tester.ensureVisible(customPeriod);
+    await tester.tap(customPeriod);
+    await tester.pumpAndSettle();
+    final datePicker = find.byType(DateRangePickerDialog);
+    final todayInPicker = find
+        .descendant(
+          of: datePicker,
+          matching: find.text('${now.day}'),
+        )
+        .first;
+    await tester.tap(todayInPicker);
+    await tester.pumpAndSettle();
+    await tester.tap(todayInPicker);
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(
+      of: datePicker,
+      matching: find.text('تطبيق'),
+    ));
+    await tester.pumpAndSettle();
+    final todayString = '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+    expect(requests.last.queryParameters['createdPeriod'], 'custom');
+    expect(requests.last.queryParameters['createdFrom'], todayString);
+    expect(requests.last.queryParameters['createdTo'], todayString);
     await tester.tap(find.text('غير نشط (2)'));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['status'], 'inactive');
+    expect(requests.last.queryParameters['createdPeriod'], 'custom');
+    expect(requests.last.queryParameters['sortBy'], 'lastSeen');
     await tester.tap(find.text('أحمد راكب'));
     await tester.pumpAndSettle();
     expect(find.text('البيانات الشخصية'), findsNothing);
+    final riderDeliveryHistoryTab = find.byType(Tab).at(1);
+    await tester.ensureVisible(riderDeliveryHistoryTab);
+    await tester.tap(riderDeliveryHistoryTab);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('الرحلة 41'));
+    await tester.pumpAndSettle();
+    expect(find.text('تفاصيل طلب GoTalabat'), findsOneWidget);
+    expect(find.text('طرد إلكترونيات'), findsOneWidget);
+    expect(find.text('ليلى أحمد'), findsOneWidget);
+    expect(find.byType(Image), findsNothing);
+    await tester.tap(find.text('الرحلة 41'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('الرحلة 44'));
+    await tester.pumpAndSettle();
+    expect(find.text('تفاصيل طلب GoTalabat'), findsNothing);
+    await tester.tap(find.text('الرحلة 44'));
+    await tester.pumpAndSettle();
     final ratingsTab = find.byType(Tab).at(4);
     await tester.ensureVisible(ratingsTab);
     await tester.tap(ratingsTab);
@@ -2599,6 +2723,8 @@ void main() {
     await tester.tap(find.text('الرحلة 41'));
     await tester.pumpAndSettle();
     expect(find.text('الحالة'), findsOneWidget);
+    expect(find.text('فئة المركبة'), findsOneWidget);
+    expect(find.text('GoFast سوزوكي'), findsOneWidget);
     expect(find.text('مكتملة'), findsAtLeastNWidgets(1));
     expect(find.text('الأجرة'), findsOneWidget);
     expect(find.text('محادثة الرحلة'), findsOneWidget);
@@ -2765,8 +2891,13 @@ void main() {
                   'fullName': 'محمد علي',
                   'phone': '+201000000000',
                   'licensePlate': 'ABC-123',
+                  'vehicleCategory': 'standard',
                   'isActive': 1,
                   'accountStatus': 'active',
+                  'effectiveAccountStatus':
+                      options.queryParameters['status'] == 'active'
+                          ? 'active'
+                          : 'inactive',
                   'latestRideId': 41,
                 },
               ],
@@ -2776,6 +2907,12 @@ void main() {
                 'active': 1,
                 'inactive': 2,
                 'suspended': 1,
+              },
+              'categoryCounts': {
+                'all': options.queryParameters['search'] == 'ABC' ? 1 : 4,
+                'standard': options.queryParameters['search'] == 'ABC' ? 1 : 2,
+                'comfort': options.queryParameters['search'] == 'ABC' ? 0 : 1,
+                'scooter': options.queryParameters['search'] == 'ABC' ? 0 : 1,
               },
             },
           ));
@@ -2806,6 +2943,15 @@ void main() {
               {
                 'id': 41,
                 'status': 'completed',
+                'deliveryDescription': 'طرد مستندات',
+                'pickupRegion': 'الجيزة',
+                'pickupLandmark': 'ميدان الجيزة',
+                'dropoffRegion': 'الدقي',
+                'dropoffLandmark': 'شارع التحرير',
+                'recipientName': 'محمود علي',
+                'recipientPhone': '+201000000456',
+                'deliveryPayer': 'sender',
+                'deliveryPaymentCollected': '0.00',
                 'fare': '25.00',
                 'driverNet': '20.00',
                 'commissionAmount': '5.00',
@@ -3022,6 +3168,9 @@ void main() {
     expect(find.text('نشط (1)'), findsOneWidget);
     expect(find.text('غير نشط (2)'), findsOneWidget);
     expect(find.text('محظور / موقوف (1)'), findsOneWidget);
+    expect(find.text('غير نشط'), findsOneWidget);
+    expect(find.text('GoFast سوزوكي (2)'), findsOneWidget);
+    expect(find.text('GoTalabat دليفيرى (1)'), findsOneWidget);
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
 
     await tester.enterText(find.byType(TextField).first, 'ABC');
@@ -3029,10 +3178,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['search'], 'ABC');
     expect(find.text('الكل (1)'), findsOneWidget);
+    expect(find.text('GoFast سوزوكي (1)'), findsOneWidget);
+
+    final standardCategory = find.text('GoFast سوزوكي (1)');
+    await tester.ensureVisible(standardCategory);
+    await tester.tap(standardCategory);
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['vehicleCategory'], 'standard');
 
     await tester.tap(find.text('نشط (1)'));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['status'], 'active');
+    expect(requests.last.queryParameters['vehicleCategory'], 'standard');
 
     await tester.tap(find.text('محمد علي'));
     await tester.pumpAndSettle();
@@ -3101,6 +3258,18 @@ void main() {
     expect(find.text('الكل (2)'), findsOneWidget);
     expect(find.text('مكتملة (1)'), findsOneWidget);
     expect(find.text('ملغاة (1)'), findsOneWidget);
+    await tester.tap(find.text('رقم 41'));
+    await tester.pumpAndSettle();
+    expect(find.text('تفاصيل طلب GoTalabat'), findsOneWidget);
+    expect(find.text('طرد مستندات'), findsOneWidget);
+    expect(find.text('محمود علي'), findsOneWidget);
+    await tester.tap(find.text('رقم 41'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('رقم 44'));
+    await tester.pumpAndSettle();
+    expect(find.text('تفاصيل طلب GoTalabat'), findsNothing);
+    await tester.tap(find.text('رقم 44'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('ملغاة (1)'));
     await tester.pumpAndSettle();
     expect(find.text('رقم 41'), findsNothing);

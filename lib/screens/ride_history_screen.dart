@@ -4,7 +4,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../core/admin_api_client.dart';
+import '../core/vehicle_categories.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/gotalabat_ride_details_section.dart';
 
 class RideHistoryScreen extends StatefulWidget {
   const RideHistoryScreen({
@@ -450,6 +452,12 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
         MapEntry('السائق', ride['driverName']),
         MapEntry('هاتف السائق', ride['driverPhone']),
         MapEntry('المركبة', ride['carModel']),
+        MapEntry(
+          'فئة المركبة',
+          ride['vehicleCategory'] == null
+              ? null
+              : VehicleCategories.labelFor(ride['vehicleCategory']),
+        ),
         MapEntry('اللون', ride['carColor']),
         MapEntry('لوحة المركبة', ride['licensePlate']),
         MapEntry('نقطة الانطلاق', ride['pickupAddress']),
@@ -691,7 +699,17 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               _sectionTitle('بيانات الرحلة'),
-              ...fields.map((field) => ListTile(
+              ...fields.take(6).map((field) => ListTile(
+                    dense: true,
+                    title: Text(field.key),
+                    subtitle: Text(_displayValue(field.value)),
+                    leading: field.key == 'الحالة'
+                        ? Icon(Icons.circle,
+                            size: 13, color: _statusColor(status))
+                        : null,
+                  )),
+              GotalabatRideDetailsSection(ride: ride),
+              ...fields.skip(6).map((field) => ListTile(
                     dense: true,
                     title: Text(field.key),
                     subtitle: Text(_displayValue(field.value)),

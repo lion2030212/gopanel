@@ -7,6 +7,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../core/admin_api_client.dart';
 import '../core/ride_trace_presentation.dart';
+import '../core/vehicle_categories.dart';
+import '../widgets/gotalabat_ride_details_section.dart';
 import 'coupon_management_screen.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/support_history_tab.dart';
@@ -42,7 +44,18 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     'inactive': 0,
     'suspended': 0,
   };
+  Map<String, int> _acquisitionCounts = {
+    'all': 0,
+    'today': 0,
+    'yesterday': 0,
+    'week': 0,
+    'month': 0,
+    'custom': 0,
+  };
   String _status = 'all';
+  String _createdPeriod = 'all';
+  DateTimeRange? _createdCustomRange;
+  bool _sortByLastSeen = false;
   String? _error;
   bool _loading = false;
   bool _loadingDetails = false;
@@ -116,9 +129,52 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     });
   }
 
+  String _dateOnly(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
+
+  Future<void> _selectCreatedPeriod(String period) async {
+    if (period == 'custom') {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final selectedRange = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(1900),
+        lastDate: DateTime(2100),
+        initialDateRange:
+            _createdCustomRange ?? DateTimeRange(start: today, end: today),
+        helpText: 'اختر مدة إنشاء الحساب',
+        cancelText: 'إلغاء',
+        confirmText: 'تطبيق',
+        saveText: 'تطبيق',
+      );
+      if (!mounted || selectedRange == null) return;
+      setState(() {
+        _createdPeriod = period;
+        _createdCustomRange = selectedRange;
+      });
+    } else {
+      setState(() => _createdPeriod = period);
+    }
+    unawaited(_loadRiders(reset: true));
+  }
+
   Future<void> _loadRiders({required bool reset}) async {
     final requestId = ++_requestId;
     final page = reset ? 1 : _page + 1;
+    final queryParameters = <String, dynamic>{
+      'search': _searchController.text.trim(),
+      'status': _status,
+      'createdPeriod': _createdPeriod,
+      'sortBy': _sortByLastSeen ? 'lastSeen' : 'default',
+      'page': page,
+      'limit': 50,
+    };
+    if (_createdPeriod == 'custom' && _createdCustomRange != null) {
+      queryParameters['createdFrom'] = _dateOnly(_createdCustomRange!.start);
+      queryParameters['createdTo'] = _dateOnly(_createdCustomRange!.end);
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -126,12 +182,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/admin/riders',
-        queryParameters: {
-          'search': _searchController.text.trim(),
-          'status': _status,
-          'page': page,
-          'limit': 50,
-        },
+        queryParameters: queryParameters,
         options: _requestOptions,
       );
       if (!mounted || requestId != _requestId) return;
@@ -145,6 +196,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? riders.length;
       final statusCounts = data['counts'];
+      final acquisitionCounts = data['acquisitionCounts'];
       setState(() {
         _riders = reset ? riders : [..._riders, ...riders];
         _page = page;
@@ -155,6 +207,16 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
             'active': (statusCounts['active'] as num?)?.toInt() ?? 0,
             'inactive': (statusCounts['inactive'] as num?)?.toInt() ?? 0,
             'suspended': (statusCounts['suspended'] as num?)?.toInt() ?? 0,
+          };
+        }
+        if (acquisitionCounts is Map) {
+          _acquisitionCounts = {
+            'all': (acquisitionCounts['all'] as num?)?.toInt() ?? 0,
+            'today': (acquisitionCounts['today'] as num?)?.toInt() ?? 0,
+            'yesterday': (acquisitionCounts['yesterday'] as num?)?.toInt() ?? 0,
+            'week': (acquisitionCounts['week'] as num?)?.toInt() ?? 0,
+            'month': (acquisitionCounts['month'] as num?)?.toInt() ?? 0,
+            'custom': (acquisitionCounts['custom'] as num?)?.toInt() ?? 0,
           };
         }
       });
@@ -494,6 +556,53 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
             scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth - 40),
+              child: Center(
+                child: SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                        value: 'all',
+                        label: Text('الكل (${_acquisitionCounts['all']})')),
+                    ButtonSegment(
+                        value: 'today',
+                        label: Text('اليوم (${_acquisitionCounts['today']})')),
+                    ButtonSegment(
+                        value: 'yesterday',
+                        label:
+                            Text('أمس (${_acquisitionCounts['yesterday']})')),
+                    ButtonSegment(
+                        value: 'week',
+                        label: Text('الأسبوع (${_acquisitionCounts['week']})')),
+                    ButtonSegment(
+                        value: 'month',
+                        label: Text('الشهر (${_acquisitionCounts['month']})')),
+                    ButtonSegment(
+                        value: 'custom',
+                        label: Text(
+                            'مدة محددة (${_acquisitionCounts['custom']})')),
+                  ],
+                  selected: {_createdPeriod},
+                  onSelectionChanged: (selection) {
+                    unawaited(_selectCreatedPeriod(selection.first));
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (_createdPeriod == 'custom' && _createdCustomRange != null)
+          Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(20, 0, 20, 4),
+            child: Text(
+              '${intl.DateFormat('y/MM/dd').format(_createdCustomRange!.start)}'
+              ' - ${intl.DateFormat('y/MM/dd').format(_createdCustomRange!.end)}',
+            ),
+          ),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
             child: ConstrainedBox(
               constraints: BoxConstraints(minWidth: constraints.maxWidth - 40),
@@ -520,6 +629,21 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                   },
                 ),
               ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(20, 0, 20, 4),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilterChip(
+              selected: _sortByLastSeen,
+              avatar: const Icon(Icons.history),
+              label: const Text('آخر ظهور'),
+              onSelected: (selected) {
+                setState(() => _sortByLastSeen = selected);
+                unawaited(_loadRiders(reset: true));
+              },
             ),
           ),
         ),
@@ -559,6 +683,15 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   Widget _riderTile(Map<String, dynamic> rider) {
     final active = rider['accountStatus'] == 'active' &&
         (rider['isActive'] == true || rider['isActive'] == 1);
+    final online = rider['isOnline'] == true ||
+        rider['isOnline'] == 1 ||
+        rider['isOnline'] == '1';
+    final lastOnlineValue = rider['lastOnlineAt'];
+    final lastOnlineAt = lastOnlineValue is DateTime
+        ? lastOnlineValue.toLocal()
+        : lastOnlineValue is String
+            ? DateTime.tryParse(lastOnlineValue)?.toLocal()
+            : null;
     final name = rider['fullName']?.toString().trim();
     return ListTile(
       leading: CircleAvatar(
@@ -573,17 +706,33 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           Text(name?.isNotEmpty == true ? name! : 'راكب ${rider['riderId']}'),
       subtitle: Text(
         '${rider['phone'] ?? 'بدون هاتف'}  ·  ${rider['ridesCount'] ?? 0} رحلة\n'
-        'الرصيد: ${rider['balance'] ?? '0.00'}',
-        maxLines: 2,
+        'الرصيد: ${rider['balance'] ?? '0.00'}\n'
+        'آخر ظهور: ${lastOnlineAt == null ? 'غير معروف' : intl.DateFormat('y/MM/dd HH:mm').format(lastOnlineAt)}',
+        maxLines: 3,
       ),
       isThreeLine: true,
-      trailing: _statusLabel(
-        active
-            ? 'نشط'
-            : rider['accountStatus'] == 'suspended'
-                ? 'موقوف'
-                : 'غير نشط',
-        active,
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          _statusLabel(
+            active
+                ? 'نشط'
+                : rider['accountStatus'] == 'suspended'
+                    ? 'موقوف'
+                    : 'غير نشط',
+            active,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            online ? 'متصل' : 'غير متصل',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: online
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+        ],
       ),
       onTap: () => _openRider(rider),
     );
@@ -2519,14 +2668,17 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: _recordFields(record),
         ),
+        GotalabatRideDetailsSection(ride: record),
         ...additionalChildren,
       ],
     );
   }
 
   Widget _recordFields(Map<String, dynamic> record) {
-    final entries =
-        record.entries.where((entry) => entry.value != null).toList();
+    final entries = record.entries
+        .where(
+            (entry) => entry.value != null && !isGotalabatRideField(entry.key))
+        .toList();
     if (entries.isEmpty) return const Text('لا توجد بيانات');
     return Column(
       children: entries
@@ -2605,6 +2757,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         'driverId': 'رقم السائق',
         'driverName': 'السائق',
         'driverPhone': 'هاتف السائق',
+        'vehicleCategory': 'فئة المركبة',
         'licensePlate': 'لوحة المركبة',
         'pickupAddress': 'نقطة الانطلاق',
         'pickupLatitude': 'خط عرض الانطلاق',
@@ -2698,6 +2851,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       key;
 
   String _displayValue(String key, dynamic value) {
+    if (key == 'vehicleCategory') return VehicleCategories.labelFor(value);
     const booleanFields = {
       'isActive',
       'userIsOnline',
@@ -2732,9 +2886,6 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       'offered': 'معروضة',
       'rejected': 'مرفوضة',
       'expired': 'منتهية',
-      'standard': 'اقتصادي',
-      'comfort': 'مميز',
-      'scooter': 'سكوتر',
       'deposit': 'إيداع',
       'withdrawal': 'سحب',
       'payment': 'دفع',

@@ -9,8 +9,10 @@ import 'package:image_picker/image_picker.dart';
 import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
+import '../core/vehicle_categories.dart';
 import '../widgets/dashboard_navigation.dart';
 import '../widgets/driver_smart_report_tab.dart';
+import '../widgets/gotalabat_ride_details_section.dart';
 import '../widgets/support_history_tab.dart';
 import '../widgets/user_notifications_tab.dart';
 
@@ -43,7 +45,12 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     'inactive': 0,
     'suspended': 0,
   };
+  Map<String, int> _vehicleCategoryCounts = {
+    'all': 0,
+    for (final category in VehicleCategories.labels.keys) category: 0,
+  };
   String _status = 'all';
+  String _vehicleCategory = 'all';
   String? _error;
   bool _loading = false;
   bool _loadingDetails = false;
@@ -120,6 +127,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         queryParameters: {
           'search': _searchController.text.trim(),
           'status': _status,
+          'vehicleCategory': _vehicleCategory,
           'page': page,
           'limit': 50,
         },
@@ -136,6 +144,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
           : <Map<String, dynamic>>[];
       final total = (data['total'] as num?)?.toInt() ?? drivers.length;
       final statusCounts = data['counts'];
+      final vehicleCategoryCounts = data['categoryCounts'];
       setState(() {
         _drivers = reset ? drivers : [..._drivers, ...drivers];
         _page = page;
@@ -146,6 +155,13 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             'active': (statusCounts['active'] as num?)?.toInt() ?? 0,
             'inactive': (statusCounts['inactive'] as num?)?.toInt() ?? 0,
             'suspended': (statusCounts['suspended'] as num?)?.toInt() ?? 0,
+          };
+        }
+        if (vehicleCategoryCounts is Map) {
+          _vehicleCategoryCounts = {
+            'all': (vehicleCategoryCounts['all'] as num?)?.toInt() ?? 0,
+            for (final category in VehicleCategories.labels.keys)
+              category: (vehicleCategoryCounts[category] as num?)?.toInt() ?? 0,
           };
         }
       });
@@ -837,6 +853,38 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             ),
           ),
         ),
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth - 40),
+              child: Center(
+                child: SegmentedButton<String>(
+                  key: const ValueKey('driverVehicleCategoryFilter'),
+                  segments: [
+                    ButtonSegment(
+                      value: 'all',
+                      label: Text('كل الفئات (${_vehicleCategoryCounts['all']})'),
+                    ),
+                    for (final entry in VehicleCategories.labels.entries)
+                      ButtonSegment(
+                        value: entry.key,
+                        label: Text(
+                          '${entry.value} (${_vehicleCategoryCounts[entry.key]})',
+                        ),
+                      ),
+                  ],
+                  selected: {_vehicleCategory},
+                  onSelectionChanged: (selection) {
+                    setState(() => _vehicleCategory = selection.first);
+                    unawaited(_loadDrivers(reset: true));
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
         if (_error != null) _errorBanner(_error!),
         Expanded(
           child: _loading && _drivers.isEmpty
@@ -874,7 +922,11 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   }
 
   Widget _driverRow(Map<String, dynamic> driver) {
-    final active = driver['accountStatus'] == 'active' &&
+    final effectiveStatus = driver['effectiveAccountStatus']?.toString();
+    final accountStatus = effectiveStatus ?? driver['accountStatus']?.toString();
+    final active = effectiveStatus != null
+      ? effectiveStatus == 'active'
+      : accountStatus == 'active' &&
         (driver['isActive'] == true || driver['isActive'] == 1);
     final name = driver['fullName']?.toString().trim();
     return ListTile(
@@ -899,7 +951,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
               _statusLabel(
                   active
                       ? 'نشط'
-                      : driver['accountStatus'] == 'suspended'
+                      : accountStatus == 'suspended'
                           ? 'موقوف'
                           : 'غير نشط',
                   active),
@@ -1726,6 +1778,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: _recordFields(record)),
+        GotalabatRideDetailsSection(ride: record),
         ...additionalChildren,
       ],
     );
@@ -1733,7 +1786,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
 
   Widget _recordFields(Map<String, dynamic> record) {
     final entries = record.entries
-        .where((entry) => entry.value != null && entry.key != 'profileImageUrl')
+        .where((entry) =>
+            entry.value != null &&
+            entry.key != 'profileImageUrl' &&
+            !isGotalabatRideField(entry.key))
         .toList();
     if (entries.isEmpty) return const Text('لا توجد بيانات');
     return Column(
@@ -1851,6 +1907,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       intl.DateFormat('y/MM/dd  HH:mm').format(date.toLocal());
 
   String _displayValue(String key, dynamic value) {
+    if (key == 'vehicleCategory') return VehicleCategories.labelFor(value);
     const booleanFields = {'isActive', 'isOnline', 'userIsOnline'};
     if (value is bool || booleanFields.contains(key)) {
       if (value == true || value == 1 || value.toString() == '1') return 'نعم';
@@ -1860,9 +1917,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       return _formatDate(DateTime.fromMillisecondsSinceEpoch(value.toInt()));
     }
     if (key.endsWith('At') ||
-      key == 'createdAt' ||
-      key == 'updatedAt' ||
-      key == 'lastLocationUpdate') {
+        key == 'createdAt' ||
+        key == 'updatedAt' ||
+        key == 'lastLocationUpdate') {
       final date = value is DateTime ? value : DateTime.tryParse('$value');
       if (date != null) return _formatDate(date);
     }
@@ -1878,9 +1935,6 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       'accepted': 'مقبولة',
       'arriving': 'في الطريق',
       'requested': 'مطلوبة',
-      'standard': 'اقتصادي',
-      'comfort': 'مميز',
-      'scooter': 'سكوتر',
       'deposit': 'إيداع',
       'withdrawal': 'سحب',
       'payment': 'دفع',
@@ -2091,20 +2145,12 @@ class _DriverFormDialogState extends State<_DriverFormDialog> {
                   isExpanded: true,
                   initialValue: _vehicleCategory,
                   decoration: const InputDecoration(labelText: 'فئة المركبة'),
-                  items: [
-                    DropdownMenuItem(
-                      value: 'standard',
-                      child: Text(_isEdit ? 'اقتصادي' : 'GoFast سوزوكي'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'comfort',
-                      child: Text(_isEdit ? 'مميز' : 'GoTalabat دليفيرى'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'scooter',
-                      child: Text(_isEdit ? 'سكوتر' : 'GoScooter المنجز'),
-                    ),
-                  ],
+                  items: VehicleCategories.labels.entries
+                      .map((entry) => DropdownMenuItem<String>(
+                            value: entry.key,
+                            child: Text(entry.value),
+                          ))
+                      .toList(),
                   onChanged: (value) => setState(
                       () => _vehicleCategory = value ?? _vehicleCategory),
                 ),
