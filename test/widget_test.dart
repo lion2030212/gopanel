@@ -156,6 +156,44 @@ void main() {
     expect(find.text('13'), findsNothing);
   });
 
+  testWidgets('offline driver count toggles map visibility', (tester) async {
+    var showOfflineDrivers = true;
+
+    await tester.pumpWidget(MaterialApp(
+      home: StatefulBuilder(
+        builder: (context, setState) => Scaffold(
+          body: MapStatsOverlay(
+            onlineGoFast: 13,
+            onlineGoTalabat: 11,
+            onlineGoScooter: 17,
+            offlineDrivers: 2,
+            riders: 7,
+            activeRides: 4,
+            showOfflineDrivers: showOfflineDrivers,
+            onToggleOfflineDrivers: () => setState(
+              () => showOfflineDrivers = !showOfflineDrivers,
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(
+      tester.widget<Text>(find.text('سائقون أوفلاين')).style?.fontSize,
+      7,
+    );
+    expect(find.byIcon(Icons.visibility), findsOneWidget);
+    await tester.tap(find.text('سائقون أوفلاين'));
+    await tester.pump();
+    expect(find.byIcon(Icons.visibility_off), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+
+    await tester.tap(find.text('سائقون أوفلاين'));
+    await tester.pump();
+    expect(find.byIcon(Icons.visibility), findsOneWidget);
+    expect(find.byIcon(Icons.visibility_off), findsNothing);
+  });
+
   testWidgets('coupon management filters validity and creates a public coupon',
       (tester) async {
     final requests = <RequestOptions>[];
@@ -1273,6 +1311,27 @@ void main() {
     );
     expect(
       MapSearchPresentation.matchesIdentity(
+        query: 'abc123',
+        licensePlate: 'ABC-123',
+      ),
+      isTrue,
+    );
+    expect(
+      MapSearchPresentation.matchesIdentity(
+        query: 'c-12',
+        licensePlate: 'ABC-123',
+      ),
+      isTrue,
+    );
+    expect(
+      MapSearchPresentation.matchesIdentity(
+        query: 'XYZ',
+        licensePlate: 'ABC-123',
+      ),
+      isFalse,
+    );
+    expect(
+      MapSearchPresentation.matchesIdentity(
         query: 'سارة',
         name: 'منى حسن',
         phone: '+201000000008',
@@ -1286,6 +1345,30 @@ void main() {
     expect(
       MapSearchPresentation.matchesRideId(query: '42', rideId: 142),
       isFalse,
+    );
+  });
+
+  test('driver map visibility hides offline drivers only when disabled', () {
+    expect(
+      DriverMarkerPresentation.isVisibleOnMap(
+        isOnline: true,
+        showOfflineDrivers: false,
+      ),
+      isTrue,
+    );
+    expect(
+      DriverMarkerPresentation.isVisibleOnMap(
+        isOnline: false,
+        showOfflineDrivers: false,
+      ),
+      isFalse,
+    );
+    expect(
+      DriverMarkerPresentation.isVisibleOnMap(
+        isOnline: false,
+        showOfflineDrivers: true,
+      ),
+      isTrue,
     );
   });
 
@@ -2159,6 +2242,20 @@ void main() {
     expect(DateTime(endAt.year, endAt.month, endAt.day),
         DateTime(today.year, today.month, today.day));
 
+    activeStatus = 'arriving';
+    await tester.tap(find.byTooltip('تحديث سجل الرحلات'));
+    await tester.pumpAndSettle();
+    final refreshRequest = requests.last;
+    expect(refreshRequest.queryParameters['group'], 'active');
+    expect(refreshRequest.queryParameters['page'], 1);
+    expect(refreshRequest.queryParameters['search'], 'ABC-123');
+    expect(refreshRequest.queryParameters['startAt'],
+      yesterdayRequest.queryParameters['startAt']);
+    expect(refreshRequest.queryParameters['endAt'],
+      yesterdayRequest.queryParameters['endAt']);
+    expect(find.textContaining('محمد راكب · وصل الكابتن'), findsOneWidget);
+    activeStatus = 'in_progress';
+
     await tester.tap(find.byType(DropdownButton<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('أسبوع'));
@@ -3002,6 +3099,87 @@ void main() {
     await tester.tap(find.byTooltip('العودة للقائمة'));
     await tester.pumpAndSettle();
     expect(find.text('إدارة الركاب'), findsOneWidget);
+  });
+
+  testWidgets('driver management displays and sorts by last-seen time',
+      (tester) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const lastOnlineAt = '2026-10-25T14:05:00Z';
+    final requests = <RequestOptions>[];
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        requests.add(options);
+        handler.resolve(Response(requestOptions: options, data: {
+          'drivers': [
+            {
+              'driverId': 4,
+              'fullName': 'كابتن بتاريخ',
+              'phone': '+201000000000',
+              'licensePlate': 'ABC-123',
+              'lastOnlineAt': lastOnlineAt,
+            },
+            {
+              'driverId': 5,
+              'fullName': 'كابتن بلا ظهور',
+              'phone': '+201000000001',
+              'licensePlate': 'XYZ-456',
+              'lastOnlineAt': null,
+            },
+          ],
+          'total': 51,
+          'counts': {'all': 2, 'active': 1, 'inactive': 1, 'suspended': 0},
+          'categoryCounts': {
+            'all': 2, 'standard': 1, 'comfort': 1, 'scooter': 0,
+          },
+        }));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: DriverManagementScreen(
+          adminToken: 'admin-token',
+          onSessionExpired: fail,
+          client: client,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final formattedLastOnlineAt = intl.DateFormat('y/MM/dd HH:mm').format(
+      DateTime.parse(lastOnlineAt).toLocal(),
+    );
+    expect(find.textContaining('آخر ظهور: $formattedLastOnlineAt'), findsOneWidget);
+    expect(find.textContaining('آخر ظهور: غير معروف'), findsOneWidget);
+    expect(requests.first.queryParameters['sortBy'], 'default');
+
+    await tester.ensureVisible(find.text('تحميل المزيد'));
+    await tester.tap(find.text('تحميل المزيد'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['page'], 2);
+
+    await tester.tap(find.text('آخر ظهور'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['sortBy'], 'lastSeen');
+    expect(requests.last.queryParameters['page'], 1);
+
+    await tester.ensureVisible(find.text('نشط (1)'));
+    await tester.tap(find.text('نشط (1)'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['status'], 'active');
+    expect(requests.last.queryParameters['sortBy'], 'lastSeen');
+
+    const categoryFilter = ValueKey('driverVehicleCategoryFilter');
+    await tester.ensureVisible(find.text('GoFast سوزوكي (1)'));
+    await tester.tap(find.text('GoFast سوزوكي (1)'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['vehicleCategory'], 'standard');
+    expect(requests.last.queryParameters['sortBy'], 'lastSeen');
+    expect(find.byKey(categoryFilter), findsOneWidget);
   });
 
   testWidgets(

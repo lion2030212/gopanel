@@ -51,6 +51,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   };
   String _status = 'all';
   String _vehicleCategory = 'all';
+  bool _sortByLastSeen = false;
   String? _error;
   bool _loading = false;
   bool _loadingDetails = false;
@@ -128,6 +129,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
           'search': _searchController.text.trim(),
           'status': _status,
           'vehicleCategory': _vehicleCategory,
+          'sortBy': _sortByLastSeen ? 'lastSeen' : 'default',
           'page': page,
           'limit': 50,
         },
@@ -885,6 +887,21 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(20, 0, 20, 4),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilterChip(
+              selected: _sortByLastSeen,
+              avatar: const Icon(Icons.history),
+              label: const Text('آخر ظهور'),
+              onSelected: (selected) {
+                setState(() => _sortByLastSeen = selected);
+                unawaited(_loadDrivers(reset: true));
+              },
+            ),
+          ),
+        ),
         if (_error != null) _errorBanner(_error!),
         Expanded(
           child: _loading && _drivers.isEmpty
@@ -928,6 +945,12 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       ? effectiveStatus == 'active'
       : accountStatus == 'active' &&
         (driver['isActive'] == true || driver['isActive'] == 1);
+    final lastOnlineValue = driver['lastOnlineAt'];
+    final lastOnlineAt = lastOnlineValue is DateTime
+        ? lastOnlineValue.toLocal()
+        : lastOnlineValue is String
+            ? DateTime.tryParse(lastOnlineValue)?.toLocal()
+            : null;
     final name = driver['fullName']?.toString().trim();
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
@@ -937,8 +960,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
       subtitle: Text(
         '${driver['phone'] ?? 'بدون هاتف'}  ·  ${driver['licensePlate'] ?? 'بدون لوحة'}\n'
         'آخر رحلة: ${driver['latestRideId'] ?? 'لا توجد'}'
-        '${driver['currentRideId'] == null ? '' : '  ·  الحالية: ${driver['currentRideId']}'}',
-        maxLines: 2,
+        '${driver['currentRideId'] == null ? '' : '  ·  الحالية: ${driver['currentRideId']}'}\n'
+        'آخر ظهور: ${lastOnlineAt == null ? 'غير معروف' : intl.DateFormat('y/MM/dd HH:mm').format(lastOnlineAt)}',
+        maxLines: 3,
       ),
       isThreeLine: true,
       trailing: Row(

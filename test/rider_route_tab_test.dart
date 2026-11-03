@@ -2,6 +2,7 @@ import 'package:admin_panel/screens/rider_management_screen.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() {
   testWidgets('searches rider rides and fetches GPS only after selection',
@@ -66,7 +67,20 @@ void main() {
           handler.resolve(Response(requestOptions: options, data: {
             'success': true,
             'rideId': 41,
+            'waitSeconds': 120,
             'points': [
+              {
+                'latitude': 29.99,
+                'longitude': 31,
+                'capturedAtMs': -120000,
+                'phase': 'approach',
+              },
+              {
+                'latitude': 29.995,
+                'longitude': 31,
+                'capturedAtMs': -60000,
+                'phase': 'approach',
+              },
               {
                 'latitude': 30,
                 'longitude': 31,
@@ -90,6 +104,29 @@ void main() {
                 'longitude': 31,
                 'capturedAtMs': 240000,
                 'speedMps': 8,
+              },
+            ],
+            'waitPoints': [
+              {
+                'latitude': 29.995,
+                'longitude': 31,
+                'phase': 'pickup',
+                'waitSeconds': 60,
+                'capturedAtMs': -30000,
+              },
+              {
+                'latitude': 30.005,
+                'longitude': 31,
+                'phase': 'trip',
+                'waitSeconds': 30,
+                'capturedAtMs': 90000,
+              },
+              {
+                'latitude': 30.0051,
+                'longitude': 31,
+                'phase': 'trip',
+                'waitSeconds': 30,
+                'capturedAtMs': 120000,
               },
             ],
           }));
@@ -139,7 +176,42 @@ void main() {
           (request) => request.path == '/api/admin/riders/12/rides/41/route'),
       isTrue,
     );
-    expect(find.text('انتظار أثناء الرحلة'), findsOneWidget);
+    expect(find.text('انتظار التسوية الفعلي'), findsOneWidget);
     expect(find.text('2 دقيقة'), findsOneWidget);
+    expect(find.text('من قبول الطلب للوصول'), findsOneWidget);
+    final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+    expect(
+      map.polylines.map((line) => line.polylineId.value).toSet(),
+      {'ride-approach-route', 'ride-route'},
+    );
+    final actualWaitMarkers = map.markers
+        .where((marker) => marker.markerId.value.startsWith('route-wait-'))
+        .toList();
+    expect(
+      actualWaitMarkers.map((marker) => marker.markerId.value).toSet(),
+      {'route-wait-pickup-0', 'route-wait-trip-1'},
+    );
+    expect(
+      actualWaitMarkers
+          .singleWhere((marker) => marker.markerId.value.contains('pickup'))
+          .infoWindow
+          .snippet,
+      '1 دقيقة',
+    );
+    expect(
+      actualWaitMarkers
+          .singleWhere((marker) => marker.markerId.value.contains('trip'))
+          .infoWindow
+          .snippet,
+      '1 دقيقة',
+    );
+    expect(
+      map.polylines
+          .singleWhere(
+            (line) => line.polylineId.value == 'ride-approach-route',
+          )
+          .color,
+      Colors.amber,
+    );
   });
 }

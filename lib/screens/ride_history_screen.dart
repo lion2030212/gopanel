@@ -883,6 +883,16 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                           : 'تفاصيل الرحلة #$_selectedRideId',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
+                    if (_selectedRideId == null) ...[
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'تحديث سجل الرحلات',
+                        onPressed: _loading
+                            ? null
+                            : () => _loadRides(reset: true),
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ],
                   ],
                 ),
               ),

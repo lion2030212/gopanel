@@ -8,6 +8,8 @@ class MapStatsOverlay extends StatelessWidget {
     required this.offlineDrivers,
     required this.riders,
     required this.activeRides,
+    this.showOfflineDrivers = true,
+    this.onToggleOfflineDrivers,
     super.key,
   });
 
@@ -17,6 +19,8 @@ class MapStatsOverlay extends StatelessWidget {
   final int offlineDrivers;
   final int riders;
   final int activeRides;
+  final bool showOfflineDrivers;
+  final VoidCallback? onToggleOfflineDrivers;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +52,9 @@ class MapStatsOverlay extends StatelessWidget {
           label: 'سائقون أوفلاين',
           count: offlineDrivers,
           color: const Color(0xFF58636B),
+          stateIcon: showOfflineDrivers ? Icons.visibility : Icons.visibility_off,
+          isToggled: showOfflineDrivers,
+          onTap: onToggleOfflineDrivers,
         ),
         const SizedBox(height: 6),
         _MapStatCircle(
@@ -72,71 +79,88 @@ class _MapStatCircle extends StatelessWidget {
     required this.count,
     required this.color,
     this.iconAsset,
+    this.stateIcon,
+    this.isToggled = false,
+    this.onTap,
   });
 
   final String label;
   final int count;
   final Color color;
   final String? iconAsset;
+  final IconData? stateIcon;
+  final bool isToggled;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: '$label: $count',
+      label: onTap == null
+          ? '$label: $count'
+          : '$label: $count, ${isToggled ? 'ظاهر على الخريطة' : 'مخفي من الخريطة'}',
+      button: onTap != null,
+      toggled: onTap == null ? null : isToggled,
+      onTap: onTap,
       child: ExcludeSemantics(
         child: SizedBox.square(
           dimension: 64,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x33000000),
-                  blurRadius: 8,
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (iconAsset != null)
-                    Image.asset(
-                      iconAsset!,
-                      width: 18,
-                      height: 18,
-                      fit: BoxFit.contain,
-                    ),
-                  if (iconAsset != null) const SizedBox(height: 1),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '$count',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        height: 1,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    label,
-                    maxLines: 2,
-                    overflow: TextOverflow.clip,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: iconAsset == null ? 9 : 8,
-                      height: 1.1,
-                      fontWeight: FontWeight.w600,
-                    ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x33000000),
+                    blurRadius: 8,
+                    offset: Offset(0, 2),
                   ),
                 ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (iconAsset != null)
+                      Image.asset(
+                        iconAsset!,
+                        width: 18,
+                        height: 18,
+                        fit: BoxFit.contain,
+                      ),
+                    if (iconAsset != null) const SizedBox(height: 1),
+                    if (stateIcon != null)
+                      Icon(stateIcon, color: Colors.white, size: 13),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '$count',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.clip,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: iconAsset == null && stateIcon == null ? 9 : 7,
+                        height: 1.1,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

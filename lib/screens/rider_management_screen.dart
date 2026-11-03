@@ -66,6 +66,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   int _routeRequestId = 0;
   Map<String, dynamic>? _selectedRouteRide;
   List<RideTracePoint> _routePoints = const [];
+  List<RideWaitPoint> _routeWaitPoints = const [];
+  int? _routeWaitSeconds;
   GoogleMapController? _routeMapController;
   String? _routeError;
   String? _routeLoadedRideId;
@@ -243,6 +245,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       _error = null;
       _selectedRouteRide = null;
       _routePoints = const [];
+      _routeWaitPoints = const [];
+      _routeWaitSeconds = null;
       _routeError = null;
       _routeLoadedRideId = null;
       _loadingRoute = false;
@@ -281,6 +285,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       _error = null;
       _selectedRouteRide = null;
       _routePoints = const [];
+      _routeWaitPoints = const [];
+      _routeWaitSeconds = null;
       _loadingRoute = false;
       _routeError = null;
       _routeLoadedRideId = null;
@@ -2061,6 +2067,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     setState(() {
       _selectedRouteRide = ride;
       _routePoints = const [];
+      _routeWaitPoints = const [];
+      _routeWaitSeconds = null;
       _routeError = null;
       _loadingRoute = true;
       _routeLoadedRideId = null;
@@ -2073,15 +2081,23 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       if (!mounted || requestId != _routeRequestId) return;
       final points =
           RideTracePresentation.parsePoints(response.data?['points']);
+      final waitPoints =
+          RideTracePresentation.parseWaitPoints(response.data?['waitPoints']);
+      final waitSeconds = int.tryParse(
+        response.data?['waitSeconds']?.toString() ?? '',
+      );
       setState(() {
         _routePoints = points;
+        _routeWaitPoints = waitPoints;
+        _routeWaitSeconds = waitSeconds;
         _routeLoadedRideId = rideIdText;
         _loadingRoute = false;
       });
       final mapController = _routeMapController;
-      if (mapController != null && points.isNotEmpty) {
+      if (mapController != null &&
+          (points.isNotEmpty || waitPoints.isNotEmpty)) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _fitRideRoute(mapController, points);
+          _fitRideRoute(mapController, points, waitPoints);
         });
       }
     } on DioException catch (error) {
@@ -2107,15 +2123,23 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_routeError != null) return _errorBanner(_routeError!);
-    if (_routePoints.isEmpty) {
+    if (_routePoints.isEmpty && _routeWaitPoints.isEmpty) {
       return _emptyState('لا توجد نقاط GPS مسجلة لهذه الرحلة');
     }
 
     final points = _routePoints;
-    final interiorWaitingStops =
-        RideTracePresentation.inTripWaitingStops(points);
-    final inTripWait = RideTracePresentation.inTripWaitingDuration(points);
-    final markers = RideTracePresentation.markersForRoute(points);
+    final waitPoints = _routeWaitPoints;
+    final approachPoints =
+        RideTracePresentation.pointsForPhase(points, RideTracePhase.approach);
+    final tripPoints =
+        RideTracePresentation.pointsForPhase(points, RideTracePhase.trip);
+    final interiorWaitingStops = tripPoints.isEmpty
+        ? const []
+        : RideTracePresentation.inTripWaitingStops(tripPoints);
+    final markers = RideTracePresentation.markersForRoute(
+      tripPoints.isEmpty ? points : tripPoints,
+      waitPoints: waitPoints,
+    );
     final polylines = RideTracePresentation.polylinesForRoute(
       points,
       color: Theme.of(context).colorScheme.primary,
@@ -2123,12 +2147,19 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
 
     return Column(
       children: [
-        _rideRouteSummary(ride, interiorWaitingStops.length, inTripWait),
+        _rideRouteSummary(
+          ride,
+          interiorWaitingStops.length,
+          _routeWaitSeconds,
+          hasApproach: approachPoints.length > 1,
+        ),
         Expanded(
           child: GoogleMap(
             key: ValueKey('ride-route-${ride['rideId'] ?? ride['id']}'),
             initialCameraPosition: CameraPosition(
-              target: points.first.position,
+              target: points.isNotEmpty
+                  ? points.first.position
+                  : waitPoints.first.position,
               zoom: 14,
             ),
             markers: markers,
@@ -2136,7 +2167,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
             myLocationButtonEnabled: false,
             onMapCreated: (controller) {
               _routeMapController = controller;
-              _fitRideRoute(controller, points);
+              _fitRideRoute(controller, points, waitPoints);
             },
           ),
         ),
@@ -2147,8 +2178,9 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   Widget _rideRouteSummary(
     Map<String, dynamic> ride,
     int waitingStops,
-    Duration? inTripWait,
-  ) {
+    int? waitSeconds, {
+    required bool hasApproach,
+  }) {
     final distance = double.tryParse(
       (ride['distance'] ?? ride['traceDistanceKm'])?.toString() ?? '',
     );
@@ -2165,44 +2197,70 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
           final columnCount = constraints.maxWidth < 560 ? 3 : 5;
           final metricWidth =
               (constraints.maxWidth - (columnCount - 1) * 8) / columnCount;
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          return Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: metricWidth,
-                child: _routeMetric(
-                  'المسافة',
-                  distance == null ? '--' : '${distance.toStringAsFixed(2)} كم',
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  SizedBox(
+                    width: metricWidth,
+                    child: _routeMetric(
+                      'المسافة',
+                      distance == null
+                          ? '--'
+                          : '${distance.toStringAsFixed(2)} كم',
+                    ),
+                  ),
+                  SizedBox(
+                    width: metricWidth,
+                    child: _routeMetric(
+                      'مدة الرحلة',
+                      duration == null ? '--' : '${duration.round()} دقيقة',
+                    ),
+                  ),
+                  SizedBox(
+                    width: metricWidth,
+                    child: _routeMetric(
+                      'انتظار الالتقاء',
+                      waitMinutes == null || waitMinutes < 0
+                          ? '--'
+                          : '$waitMinutes دقيقة',
+                    ),
+                  ),
+                  SizedBox(
+                    width: metricWidth,
+                    child: _routeMetric(
+                      'انتظار التسوية الفعلي',
+                      waitSeconds == null
+                          ? '--'
+                          : RideTracePresentation.formatWaitDuration(
+                              Duration(seconds: waitSeconds),
+                            ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: metricWidth,
+                    child: _routeMetric('توقفات GPS', '$waitingStops'),
+                  ),
+                ],
+              ),
+              if (hasApproach) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _routeLegendItem('من قبول الطلب للوصول', Colors.amber),
+                    _routeLegendItem(
+                      'مسار الرحلة',
+                      Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
                 ),
-              ),
-              SizedBox(
-                width: metricWidth,
-                child: _routeMetric(
-                  'مدة الرحلة',
-                  duration == null ? '--' : '${duration.round()} دقيقة',
-                ),
-              ),
-              SizedBox(
-                width: metricWidth,
-                child: _routeMetric(
-                  'انتظار الالتقاء',
-                  waitMinutes == null || waitMinutes < 0
-                      ? '--'
-                      : '$waitMinutes دقيقة',
-                ),
-              ),
-              SizedBox(
-                width: metricWidth,
-                child: _routeMetric(
-                  'انتظار أثناء الرحلة',
-                  inTripWait == null ? '--' : _formatWaitDuration(inTripWait),
-                ),
-              ),
-              SizedBox(
-                width: metricWidth,
-                child: _routeMetric('توقفات GPS', '$waitingStops'),
-              ),
+              ],
             ],
           );
         },
@@ -2210,13 +2268,14 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     );
   }
 
-  String _formatWaitDuration(Duration duration) {
-    final minutes = duration.inMinutes;
-    if (minutes < 60) return '$minutes دقيقة';
-    final hours = minutes ~/ 60;
-    final remainingMinutes = minutes % 60;
-    return remainingMinutes == 0 ? '$hours س' : '$hours س $remainingMinutes د';
-  }
+  Widget _routeLegendItem(String label, Color color) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 18, height: 3, color: color),
+          const SizedBox(width: 6),
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+        ],
+      );
 
   Widget _routeMetric(String label, String value) => Column(
         mainAxisSize: MainAxisSize.min,
@@ -2240,16 +2299,24 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   }
 
   void _fitRideRoute(
-      GoogleMapController controller, List<RideTracePoint> points) {
-    if (points.length == 1) {
+    GoogleMapController controller,
+    List<RideTracePoint> points, [
+    List<RideWaitPoint> waitPoints = const [],
+  ]) {
+    final positions = [
+      ...points.map((point) => point.position),
+      ...waitPoints.map((point) => point.position),
+    ];
+    if (positions.isEmpty) return;
+    if (positions.length == 1) {
       unawaited(controller.animateCamera(CameraUpdate.newLatLngZoom(
-        points.single.position,
+        positions.single,
         15,
       )));
       return;
     }
-    final latitudes = points.map((point) => point.position.latitude);
-    final longitudes = points.map((point) => point.position.longitude);
+    final latitudes = positions.map((position) => position.latitude);
+    final longitudes = positions.map((position) => position.longitude);
     final south =
         latitudes.reduce((first, second) => first < second ? first : second);
     final north =
@@ -2260,7 +2327,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         longitudes.reduce((first, second) => first > second ? first : second);
     if (north - south < 0.00001 && east - west < 0.00001) {
       unawaited(controller.animateCamera(CameraUpdate.newLatLngZoom(
-        points.first.position,
+        positions.first,
         15,
       )));
       return;

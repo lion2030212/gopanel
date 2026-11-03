@@ -64,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _freshnessTimer;
   Timer? _staffPresenceTimer;
   bool _isLoadingDrivers = false;
+  bool _showOfflineDrivers = true;
   String _mapSearchQuery = '';
   int _maxDriverLocationAgeSeconds = 120;
   int _maxRiderLocationAgeSeconds = 120;
@@ -351,6 +352,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       fallbackStatus: _drivers[driverId]?.status ?? 'idle',
       fallbackFullName: _drivers[driverId]?.fullName,
       fallbackPhone: _drivers[driverId]?.phone,
+      fallbackLicensePlate: _drivers[driverId]?.licensePlate,
       fallbackVehicleCategory: _drivers[driverId]?.vehicleCategory,
     );
     if (driver == null || !mounted) return;
@@ -502,20 +504,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Set<int> get _matchingDriverIds {
-    if (!_hasMapSearchQuery) return _drivers.keys.toSet();
     final matchingRideIds = _matchingRideIds;
-    return {
+    final matchingDriverIds = <int>{
+      if (!_hasMapSearchQuery) ..._drivers.keys,
       for (final driver in _drivers.values)
-        if (MapSearchPresentation.matchesIdentity(
+        if (_hasMapSearchQuery && MapSearchPresentation.matchesIdentity(
           query: _mapSearchQuery,
           name: driver.fullName,
           phone: driver.phone,
+          licensePlate: driver.licensePlate,
         ))
           driver.id,
       for (final ride in _activeRides.values)
-        if (matchingRideIds.contains(ride.rideId) &&
+        if (_hasMapSearchQuery &&
+            matchingRideIds.contains(ride.rideId) &&
             _drivers.containsKey(ride.driverId))
           ride.driverId,
+    };
+    return {
+      for (final driver in _drivers.values)
+        if (matchingDriverIds.contains(driver.id) &&
+            DriverMarkerPresentation.isVisibleOnMap(
+              isOnline: driver.isOnline,
+              showOfflineDrivers: _showOfflineDrivers,
+            ))
+          driver.id,
     };
   }
 
@@ -548,6 +561,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     _publishMarkers();
     _focusMapSearchResults();
+  }
+
+  void _toggleOfflineDrivers() {
+    setState(() {
+      _showOfflineDrivers = !_showOfflineDrivers;
+      _hoveredMarkerId = null;
+      _selectedMarkerId = null;
+    });
+    _publishMarkers();
   }
 
   void _focusMapSearchResults() {
@@ -1056,7 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       onChanged: _handleMapSearchChanged,
                                       decoration: InputDecoration(
                                         hintText:
-                                            'ابحث بالاسم أو الجوال أو رقم الرحلة',
+                                          'ابحث بالاسم أو الجوال أو رقم السيارة أو الرحلة',
                                         prefixIcon: const Icon(Icons.search),
                                         suffixIcon:
                                             _mapSearchController.text.isEmpty
@@ -1271,6 +1293,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         .length,
                     riders: _riders.length,
                     activeRides: _activeRides.length,
+                    showOfflineDrivers: _showOfflineDrivers,
+                    onToggleOfflineDrivers: _toggleOfflineDrivers,
                   ),
                 ),
               ),
@@ -1329,6 +1353,7 @@ class _DriverLocation {
     required this.id,
     this.fullName,
     this.phone,
+    this.licensePlate,
     required this.latitude,
     required this.longitude,
     required this.isOnline,
@@ -1340,6 +1365,7 @@ class _DriverLocation {
   final int id;
   final String? fullName;
   final String? phone;
+  final String? licensePlate;
   final double latitude;
   final double longitude;
   final bool isOnline;
@@ -1354,6 +1380,7 @@ class _DriverLocation {
     String? fallbackStatus,
     String? fallbackFullName,
     String? fallbackPhone,
+    String? fallbackLicensePlate,
     String? fallbackVehicleCategory,
   }) {
     final id = (json['id'] as num?)?.toInt();
@@ -1370,6 +1397,10 @@ class _DriverLocation {
       phone: DriverMarkerPresentation.preserveIdentityValue(
         json['phone']?.toString(),
         fallbackPhone,
+      ),
+      licensePlate: DriverMarkerPresentation.preserveIdentityValue(
+        json['licensePlate']?.toString(),
+        fallbackLicensePlate,
       ),
       vehicleCategory: DriverMarkerPresentation.preserveIdentityValue(
         json['vehicleCategory']?.toString() ??

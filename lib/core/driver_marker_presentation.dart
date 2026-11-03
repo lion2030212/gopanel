@@ -76,6 +76,12 @@ class DriverMarkerPresentation {
     );
   }
 
+  static bool isVisibleOnMap({
+    required bool isOnline,
+    required bool showOfflineDrivers,
+  }) =>
+      isOnline || showOfflineDrivers;
+
   static DriverMarkerPresentation fromRider({required bool hasActiveRide}) =>
       DriverMarkerPresentation(
         label: hasActiveRide ? 'في رحلة' : 'متصل',
