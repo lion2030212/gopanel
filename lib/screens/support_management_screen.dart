@@ -392,12 +392,16 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
 
   String _ticketStatus(String? value) => _ticketStatuses[value] ?? 'غير معروفة';
 
-  String _rideStatusLabel(String? status) => switch (status) {
+  String _rideStatusLabel(String? status, {bool isDelivery = false}) =>
+      switch (status) {
         'requested' => 'بانتظار السائق',
-        'accepted' => 'تم قبولها',
-        'arriving' => 'السائق في الطريق',
-        'in_progress' => 'جارية',
-        _ => 'مرحلة غير معروفة',
+        'accepted' =>
+          isDelivery ? 'الكابتن في الطريق لاستلام الطلب' : 'الكابتن في الطريق',
+        'arriving' => isDelivery ? 'وصل الكابتن للاستلام' : 'وصل الكابتن',
+        'in_progress' => isDelivery ? 'الطلب قيد التوصيل' : 'الرحلة جارية',
+        'completed' => isDelivery ? 'تم تسليم الطلب' : 'مكتملة',
+        'cancelled' => 'ملغاة',
+        _ => status ?? 'مرحلة غير معروفة',
       };
 
   bool _hasActiveRide(Map<String, dynamic> item) =>
@@ -410,7 +414,10 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     final rideId = _id(item['rideId']);
     return Text(
       hasRide
-          ? 'رحلة نشطة #$rideId · ${_rideStatusLabel(item['rideStatus']?.toString())}'
+          ? 'رحلة نشطة #$rideId · ${_rideStatusLabel(
+              item['rideStatus']?.toString(),
+              isDelivery: item['deliveryDescription'] != null,
+            )}'
           : 'لا توجد رحلة نشطة',
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
@@ -444,7 +451,10 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
           Expanded(
             child: Text(
               hasRide
-                  ? 'رحلة نشطة #$rideId · ${_rideStatusLabel(item['rideStatus']?.toString())}'
+                  ? 'رحلة نشطة #$rideId · ${_rideStatusLabel(
+                      item['rideStatus']?.toString(),
+                      isDelivery: item['deliveryDescription'] != null,
+                    )}'
                   : 'لا توجد رحلة نشطة',
               style: TextStyle(
                 color: color,

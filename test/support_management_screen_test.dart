@@ -33,8 +33,9 @@ void main() {
         'status': 'active',
         'customerName': 'عمر حسن',
         'customerPhone': '0500000001',
-        'rideId': null,
-        'rideStatus': null,
+        'rideId': 64,
+        'rideStatus': 'accepted',
+        'deliveryDescription': 'طعام ومشروبات',
         'unreadCount': 0,
       },
     ];
@@ -79,13 +80,16 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('رحلة نشطة #63 · السائق في الطريق'), findsOneWidget);
-    expect(find.text('لا توجد رحلة نشطة'), findsOneWidget);
+    expect(find.text('رحلة نشطة #63 · وصل الكابتن'), findsOneWidget);
+    expect(
+      find.text('رحلة نشطة #64 · الكابتن في الطريق لاستلام الطلب'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('سامي علي').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('رحلة نشطة #63 · السائق في الطريق'), findsNWidgets(2));
+    expect(find.text('رحلة نشطة #63 · وصل الكابتن'), findsNWidgets(2));
     final greeting = find.byKey(const ValueKey('support-quick-reply-1'));
     await tester.tap(greeting);
     await tester.pumpAndSettle();
@@ -213,7 +217,9 @@ void main() {
         if (options.path == '/api/admin/support/conversations') {
           handler.resolve(Response(
             requestOptions: options,
-            data: {'conversations': [conversation]},
+            data: {
+              'conversations': [conversation]
+            },
           ));
           return;
         }
@@ -240,14 +246,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('رسالة طويلة 59'), findsOneWidget);
-    expect(tester.getRect(find.text('رسالة طويلة 59')).overlaps(
-      tester.getRect(find.byType(ListView).at(1)),
-    ), isTrue);
+    expect(
+        tester.getRect(find.text('رسالة طويلة 59')).overlaps(
+              tester.getRect(find.byType(ListView).at(1)),
+            ),
+        isTrue);
 
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('admin replies show sent, delivered, and read checks in both modes',
+  testWidgets(
+      'admin replies show sent, delivered, and read checks in both modes',
       (tester) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1;
@@ -309,7 +318,9 @@ void main() {
           if (options.path == collectionPath) {
             handler.resolve(Response(
               requestOptions: options,
-              data: {ticketsMode ? 'tickets' : 'conversations': [item]},
+              data: {
+                ticketsMode ? 'tickets' : 'conversations': [item]
+              },
             ));
             return;
           }

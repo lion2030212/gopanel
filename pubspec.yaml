@@ -30,3 +30,5 @@ flutter:
   uses-material-design: true
   assets:
     - web/car.png
+    - web/dev.png
+    - web/sco.png

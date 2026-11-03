@@ -10,6 +10,7 @@ import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_session.dart';
 import '../core/driver_marker_presentation.dart';
+import '../core/map_search_presentation.dart';
 import '../core/ride_route_presentation.dart';
 import '../widgets/admin_drawer.dart';
 import '../widgets/dashboard_navigation.dart';
@@ -47,9 +48,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Map<int, _RiderLocation> _riders = {};
   final Map<int, _ActiveRide> _activeRides = {};
   final Map<Color, BitmapDescriptor> _markerIcons = {};
-  final Map<Color, BitmapDescriptor> _driverMarkerIcons = {};
+  final Map<String, Map<Color, BitmapDescriptor>> _driverMarkerIcons = {};
   final Map<MarkerId, Offset> _markerScreenPositions = {};
   final ValueNotifier<Set<Marker>> _markerNotifier = ValueNotifier(<Marker>{});
+  final TextEditingController _mapSearchController = TextEditingController();
   final GlobalKey<DashboardNavigationState> _dashboardNavigationKey =
       GlobalKey<DashboardNavigationState>();
   final GlobalKey<SupportManagementScreenState> _supportConversationsKey =
@@ -62,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _freshnessTimer;
   Timer? _staffPresenceTimer;
   bool _isLoadingDrivers = false;
+  String _mapSearchQuery = '';
   int _maxDriverLocationAgeSeconds = 120;
   int _maxRiderLocationAgeSeconds = 120;
   AdminDestination _selectedDestination = AdminDestination.driverMap;
@@ -104,6 +107,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _dio.close(force: true);
     _mapHoverListener?.dispose();
     _mapController?.dispose();
+    _mapSearchController.dispose();
     _markerNotifier.dispose();
     super.dispose();
   }
@@ -203,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadMarkerIcons() async {
+    const driverCategories = ['standard', 'comfort', 'scooter'];
     final driverColors = [
       DriverMarkerPresentation.offlineColor,
       DriverMarkerPresentation.onlineColor,
@@ -213,14 +218,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       DriverMarkerPresentation.riderActiveRideColor,
     ];
     final driverIcons = await Future.wait(
-      driverColors.map(DriverMarkerPresentation.driverMarkerIcon),
+      driverCategories.map((category) async {
+        final icons = await Future.wait(
+          driverColors.map(
+            (color) => DriverMarkerPresentation.driverMarkerIcon(
+              color,
+              vehicleCategory: category,
+            ),
+          ),
+        );
+        return Map<Color, BitmapDescriptor>.fromIterables(
+          driverColors,
+          icons,
+        );
+      }),
     );
     final riderIcons = await Future.wait(
       riderColors.map(DriverMarkerPresentation.markerIcon),
     );
     if (!mounted) return;
-    for (var index = 0; index < driverColors.length; index++) {
-      _driverMarkerIcons[driverColors[index]] = driverIcons[index];
+    for (var index = 0; index < driverCategories.length; index++) {
+      _driverMarkerIcons[driverCategories[index]] = driverIcons[index];
     }
     for (var index = 0; index < riderColors.length; index++) {
       _markerIcons[riderColors[index]] = riderIcons[index];
@@ -333,6 +351,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       fallbackStatus: _drivers[driverId]?.status ?? 'idle',
       fallbackFullName: _drivers[driverId]?.fullName,
       fallbackPhone: _drivers[driverId]?.phone,
+      fallbackVehicleCategory: _drivers[driverId]?.vehicleCategory,
     );
     if (driver == null || !mounted) return;
     setState(() {
@@ -376,6 +395,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final isAssignedActive =
         payload['isAssignedActive'] == true || payload['isAssignedActive'] == 1;
     final driverId = (payload['driverId'] as num?)?.toInt();
+    final previousRide = rideId == null ? null : _activeRides[rideId];
     setState(() {
       final rider = riderId == null ? null : _riders[riderId];
       if (rider != null) {
@@ -388,6 +408,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             riderId: riderId,
             driverId: driverId,
             status: payload['status']?.toString() ?? '',
+            isDelivery: payload['isDelivery'] == true ||
+              payload['isDelivery'] == 1 ||
+              previousRide?.isDelivery == true,
+            deliveryPaymentCollected:
+              payload['deliveryPaymentCollected'] == true ||
+                payload['deliveryPaymentCollected'] == 1 ||
+                previousRide?.deliveryPaymentCollected == true,
           );
         } else {
           _activeRides.remove(rideId);
@@ -410,38 +437,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ..._drivers.values.map((driver) => driver.position),
         ..._riders.values.map((rider) => rider.position),
       ];
-      if (locations.length == 1) {
-        await _mapController!.animateCamera(
-          CameraUpdate.newLatLngZoom(locations.single, 13),
-        );
-        return;
-      }
-      var south = locations.first.latitude;
-      var north = south;
-      var west = locations.first.longitude;
-      var east = west;
-      for (final location in locations.skip(1)) {
-        if (location.latitude < south) south = location.latitude;
-        if (location.latitude > north) north = location.latitude;
-        if (location.longitude < west) west = location.longitude;
-        if (location.longitude > east) east = location.longitude;
-      }
-      if (south == north && west == east) {
-        await _mapController!.animateCamera(
-          CameraUpdate.newLatLngZoom(locations.first, 13),
-        );
-      } else {
-        await _mapController!.animateCamera(
-          CameraUpdate.newLatLngBounds(
-            LatLngBounds(
-              southwest: LatLng(south, west),
-              northeast: LatLng(north, east),
-            ),
-            64,
-          ),
-        );
-      }
+      await _frameMapPositions(_mapController!, locations);
     });
+  }
+
+  Future<void> _frameMapPositions(
+    GoogleMapController controller,
+    List<LatLng> locations,
+  ) async {
+    if (!mounted ||
+        !identical(controller, _mapController) ||
+        locations.isEmpty) {
+      return;
+    }
+    if (locations.length == 1) {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngZoom(locations.single, 13),
+      );
+      return;
+    }
+    var south = locations.first.latitude;
+    var north = south;
+    var west = locations.first.longitude;
+    var east = west;
+    for (final location in locations.skip(1)) {
+      if (location.latitude < south) south = location.latitude;
+      if (location.latitude > north) north = location.latitude;
+      if (location.longitude < west) west = location.longitude;
+      if (location.longitude > east) east = location.longitude;
+    }
+    if (south == north && west == east) {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngZoom(locations.first, 13),
+      );
+      return;
+    }
+    await controller.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(south, west),
+          northeast: LatLng(north, east),
+        ),
+        64,
+      ),
+    );
   }
 
   void _publishMarkers() {
@@ -449,14 +488,125 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     unawaited(_refreshMarkerScreenPositions());
   }
 
+  bool get _hasMapSearchQuery => _mapSearchQuery.trim().isNotEmpty;
+
+  Set<int> get _matchingRideIds {
+    if (!_hasMapSearchQuery) return const <int>{};
+    return _activeRides.values
+        .where((ride) => MapSearchPresentation.matchesRideId(
+              query: _mapSearchQuery,
+              rideId: ride.rideId,
+            ))
+        .map((ride) => ride.rideId)
+        .toSet();
+  }
+
+  Set<int> get _matchingDriverIds {
+    if (!_hasMapSearchQuery) return _drivers.keys.toSet();
+    final matchingRideIds = _matchingRideIds;
+    return {
+      for (final driver in _drivers.values)
+        if (MapSearchPresentation.matchesIdentity(
+          query: _mapSearchQuery,
+          name: driver.fullName,
+          phone: driver.phone,
+        ))
+          driver.id,
+      for (final ride in _activeRides.values)
+        if (matchingRideIds.contains(ride.rideId) &&
+            _drivers.containsKey(ride.driverId))
+          ride.driverId,
+    };
+  }
+
+  Set<int> get _matchingRiderIds {
+    if (!_hasMapSearchQuery) return _riders.keys.toSet();
+    final matchingRideIds = _matchingRideIds;
+    return {
+      for (final rider in _riders.values)
+        if (MapSearchPresentation.matchesIdentity(
+          query: _mapSearchQuery,
+          name: rider.fullName,
+          phone: rider.phone,
+        ))
+          rider.id,
+      for (final ride in _activeRides.values)
+        if (matchingRideIds.contains(ride.rideId) &&
+            _riders.containsKey(ride.riderId))
+          ride.riderId,
+    };
+  }
+
+  bool get _hasMapSearchResults =>
+      _matchingDriverIds.isNotEmpty || _matchingRiderIds.isNotEmpty;
+
+  void _handleMapSearchChanged(String value) {
+    setState(() {
+      _mapSearchQuery = value;
+      _hoveredMarkerId = null;
+      _selectedMarkerId = null;
+    });
+    _publishMarkers();
+    _focusMapSearchResults();
+  }
+
+  void _focusMapSearchResults() {
+    final controller = _mapController;
+    if (controller == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !identical(controller, _mapController)) return;
+      final positions = <LatLng>[];
+      for (final id in _matchingDriverIds) {
+        final driver = _drivers[id];
+        if (driver != null) positions.add(driver.position);
+      }
+      for (final id in _matchingRiderIds) {
+        final rider = _riders[id];
+        if (rider != null) positions.add(rider.position);
+      }
+      unawaited(_frameMapPositions(controller, positions));
+    });
+  }
+
+  _ActiveRide? _activeRideForMarker({int? driverId, int? riderId}) {
+    for (final ride in _activeRides.values) {
+      if ((driverId != null && ride.driverId == driverId) ||
+          (riderId != null && ride.riderId == riderId)) {
+        return ride;
+      }
+    }
+    return null;
+  }
+
+  String _rideStatusLabel(_ActiveRide ride) => switch (ride.status) {
+        'requested' => 'بانتظار السائق',
+        'accepted' => ride.isDelivery
+            ? 'الكابتن في الطريق لاستلام الطلب'
+            : 'الكابتن في الطريق',
+        'arriving' => ride.isDelivery ? 'وصل الكابتن للاستلام' : 'وصل الكابتن',
+        'in_progress' => ride.isDelivery ? 'الطلب قيد التوصيل' : 'الرحلة جارية',
+        'completed' => ride.isDelivery ? 'تم تسليم الطلب' : 'مكتملة',
+        'cancelled' => 'ملغاة',
+        _ => ride.status,
+      };
+
   Map<MarkerId, _MapMarkerDetails> get _markerDetails {
     final details = <MarkerId, _MapMarkerDetails>{};
+    final matchingDriverIds = _matchingDriverIds;
     for (final driver in _drivers.values) {
+      if (!matchingDriverIds.contains(driver.id)) continue;
       final presentation = DriverMarkerPresentation.fromDriver(
         isOnline: driver.isOnline,
         status: driver.status,
       );
-      if (!_driverMarkerIcons.containsKey(presentation.color)) continue;
+      final category =
+          DriverMarkerPresentation.driverMarkerCategory(driver.vehicleCategory);
+      final categoryIcons = _driverMarkerIcons[category];
+      if (categoryIcons == null ||
+          !categoryIcons.containsKey(presentation.color)) {
+        continue;
+      }
+      final activeRide = _activeRideForMarker(driverId: driver.id);
       final markerId = MarkerId('driver-${driver.id}');
       details[markerId] = _MapMarkerDetails(
         position: driver.position,
@@ -464,15 +614,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         name: driver.fullName,
         phone: driver.phone,
         status: presentation.label,
-        updatedAt: driver.updatedAt?.toLocal().toString() ?? 'غير متوفر',
+        updatedAt: DriverMarkerPresentation.formatLastUpdated(driver.updatedAt),
         statusColor: presentation.color,
+        rideId: activeRide?.rideId,
+        rideStatus:
+          activeRide == null ? null : _rideStatusLabel(activeRide),
+        deliveryPaymentCollected: activeRide?.isDelivery == true &&
+          activeRide?.deliveryPaymentCollected == true,
       );
     }
+    final matchingRiderIds = _matchingRiderIds;
     for (final rider in _riders.values) {
+      if (!matchingRiderIds.contains(rider.id)) continue;
       final presentation = DriverMarkerPresentation.fromRider(
         hasActiveRide: rider.hasActiveRide,
       );
       if (!_markerIcons.containsKey(presentation.color)) continue;
+      final activeRide = _activeRideForMarker(riderId: rider.id);
       final markerId = MarkerId('rider-${rider.id}');
       details[markerId] = _MapMarkerDetails(
         position: rider.position,
@@ -480,8 +638,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         name: rider.fullName,
         phone: rider.phone,
         status: presentation.label,
-        updatedAt: rider.updatedAt?.toLocal().toString() ?? 'غير متوفر',
+        updatedAt: DriverMarkerPresentation.formatLastUpdated(rider.updatedAt),
         statusColor: presentation.color,
+        rideId: activeRide?.rideId,
+        rideStatus:
+          activeRide == null ? null : _rideStatusLabel(activeRide),
+        deliveryPaymentCollected: activeRide?.isDelivery == true &&
+          activeRide?.deliveryPaymentCollected == true,
       );
     }
     return details;
@@ -567,17 +730,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Set<Marker> get _markers {
+    final matchingDriverIds = _matchingDriverIds;
+    final matchingRiderIds = _matchingRiderIds;
     final markers = _drivers.values
         .map((driver) {
+          if (!matchingDriverIds.contains(driver.id)) return null;
           final presentation = DriverMarkerPresentation.fromDriver(
             isOnline: driver.isOnline,
             status: driver.status,
           );
-          final icon = _driverMarkerIcons[presentation.color];
+          final category = DriverMarkerPresentation.driverMarkerCategory(
+            driver.vehicleCategory,
+          );
+          final icon = _driverMarkerIcons[category]?[presentation.color];
           if (icon == null) return null;
           final markerId = MarkerId('driver-${driver.id}');
-          final lastUpdate =
-              driver.updatedAt?.toLocal().toString() ?? 'غير متوفر';
+            final lastUpdate =
+              DriverMarkerPresentation.formatLastUpdated(driver.updatedAt);
           return Marker(
             markerId: markerId,
             position: driver.position,
@@ -597,13 +766,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         .whereType<Marker>()
         .toSet();
     for (final rider in _riders.values) {
+      if (!matchingRiderIds.contains(rider.id)) continue;
       final presentation = DriverMarkerPresentation.fromRider(
         hasActiveRide: rider.hasActiveRide,
       );
       final icon = _markerIcons[presentation.color];
       if (icon == null) continue;
       final markerId = MarkerId('rider-${rider.id}');
-      final lastUpdate = rider.updatedAt?.toLocal().toString() ?? 'غير متوفر';
+        final lastUpdate =
+          DriverMarkerPresentation.formatLastUpdated(rider.updatedAt);
       markers.add(Marker(
         markerId: markerId,
         position: rider.position,
@@ -624,6 +795,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Set<Polyline> get _polylines {
+    final matchingRideIds = _matchingRideIds;
     final rides = _activeRides.values.toList()
       ..sort((left, right) => left.rideId.compareTo(right.rideId));
     final colors = RideRoutePresentation.colorsForRideIds(
@@ -631,6 +803,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
     final polylines = <Polyline>{};
     for (final ride in rides) {
+      if (_hasMapSearchQuery && !matchingRideIds.contains(ride.rideId)) {
+        continue;
+      }
       final driver = _drivers[ride.driverId];
       final rider = _riders[ride.riderId];
       if (driver == null ||
@@ -745,30 +920,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 routeName.startsWith(
                                     '${DashboardNavigation.adminSettingsRoute}/')
                             ? AdminDestination.adminSettings
-                            : routeName ==
-                                        DashboardNavigation
-                                            .staffManagementRoute ||
+                            : routeName == DashboardNavigation.staffManagementRoute ||
                                     routeName.startsWith(
                                         '${DashboardNavigation.staffManagementRoute}/')
                                 ? AdminDestination.staffManagement
-                                : routeName == DashboardNavigation
-                                      .financialManagementRoute ||
-                                    routeName.startsWith(
-                                      '${DashboardNavigation.financialManagementRoute}/')
-                                  ? AdminDestination.financialManagement
-                                : routeName ==
-                                            DashboardNavigation
-                                                .supportConversationsRoute ||
+                                : routeName == DashboardNavigation.financialManagementRoute ||
                                         routeName.startsWith(
-                                            '${DashboardNavigation.supportConversationsRoute}/')
-                                    ? AdminDestination.supportConversations
+                                            '${DashboardNavigation.financialManagementRoute}/')
+                                    ? AdminDestination.financialManagement
                                     : routeName ==
                                                 DashboardNavigation
-                                                    .supportTicketsRoute ||
+                                                    .supportConversationsRoute ||
                                             routeName.startsWith(
-                                                '${DashboardNavigation.supportTicketsRoute}/')
-                                        ? AdminDestination.supportTickets
-                                        : AdminDestination.driverMap;
+                                                '${DashboardNavigation.supportConversationsRoute}/')
+                                        ? AdminDestination.supportConversations
+                                        : routeName ==
+                                                    DashboardNavigation
+                                                        .supportTicketsRoute ||
+                                                routeName.startsWith(
+                                                    '${DashboardNavigation.supportTicketsRoute}/')
+                                            ? AdminDestination.supportTickets
+                                            : AdminDestination.driverMap;
     if (_selectedDestination != destination) {
       setState(() => _selectedDestination = destination);
     }
@@ -824,12 +996,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     constraints.maxWidth - cardWidth - 12),
                               )
                               .toDouble();
+                            final cardHeight = 190.0 +
+                              (details?.rideId != null ? 26.0 : 0.0) +
+                              (details?.rideStatus != null ? 26.0 : 0.0) +
+                              (details?.deliveryPaymentCollected == true
+                                ? 26.0
+                                : 0.0);
                       final cardTop = position == null
                           ? 12.0
                           : (position.dy + 20)
                               .clamp(
                                 12.0,
-                                math.max(12.0, constraints.maxHeight - 190),
+                                math.max(
+                                    12.0, constraints.maxHeight - cardHeight - 12),
                               )
                               .toDouble();
                       return Stack(
@@ -853,6 +1032,83 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               _frameDrivers();
                             },
                           ),
+                          Positioned(
+                            top: 12,
+                            left: 0,
+                            right: 0,
+                            child: SafeArea(
+                              child: Center(
+                                child: SizedBox(
+                                  width: math.min(
+                                    520.0,
+                                    math.max(0.0, constraints.maxWidth - 120),
+                                  ),
+                                  child: Material(
+                                    color:
+                                        Theme.of(context).colorScheme.surface,
+                                    elevation: 4,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: TextField(
+                                      controller: _mapSearchController,
+                                      textDirection: TextDirection.rtl,
+                                      textAlign: TextAlign.right,
+                                      textInputAction: TextInputAction.search,
+                                      onChanged: _handleMapSearchChanged,
+                                      decoration: InputDecoration(
+                                        hintText:
+                                            'ابحث بالاسم أو الجوال أو رقم الرحلة',
+                                        prefixIcon: const Icon(Icons.search),
+                                        suffixIcon:
+                                            _mapSearchController.text.isEmpty
+                                                ? null
+                                                : IconButton(
+                                                    tooltip: 'مسح البحث',
+                                                    onPressed: () {
+                                                      _mapSearchController
+                                                          .clear();
+                                                      _handleMapSearchChanged(
+                                                          '');
+                                                    },
+                                                    icon: const Icon(
+                                                        Icons.clear),
+                                                  ),
+                                        border: InputBorder.none,
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 14,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (_hasMapSearchQuery && !_hasMapSearchResults)
+                            Positioned(
+                              left: 12,
+                              right: 12,
+                              bottom: 24,
+                              child: SafeArea(
+                                child: Center(
+                                  child: Material(
+                                    color:
+                                        Theme.of(context).colorScheme.surface,
+                                    elevation: 4,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 10,
+                                      ),
+                                      child: Text('لا توجد نتائج مطابقة'),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           if (details != null)
                             Positioned(
                               left: cardLeft,
@@ -868,6 +1124,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   status: details.status,
                                   updatedAt: details.updatedAt,
                                   statusColor: details.statusColor,
+                                    rideId: details.rideId,
+                                    rideStatus: details.rideStatus,
+                                    deliveryPaymentCollected:
+                                      details.deliveryPaymentCollected,
                                   onDismiss: () => setState(() {
                                     _selectedMarkerId = null;
                                     _hoveredMarkerId = null;
@@ -985,9 +1245,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 left: 12,
                 child: SafeArea(
                   child: MapStatsOverlay(
-                    onlineDrivers: _drivers.values
-                        .where((driver) => driver.isOnline)
-                        .length,
+                    onlineGoFast: _drivers.values
+                      .where((driver) =>
+                        driver.isOnline &&
+                        DriverMarkerPresentation.driverMarkerCategory(
+                            driver.vehicleCategory) ==
+                          'standard')
+                      .length,
+                    onlineGoTalabat: _drivers.values
+                      .where((driver) =>
+                        driver.isOnline &&
+                        DriverMarkerPresentation.driverMarkerCategory(
+                            driver.vehicleCategory) ==
+                          'comfort')
+                      .length,
+                    onlineGoScooter: _drivers.values
+                      .where((driver) =>
+                        driver.isOnline &&
+                        DriverMarkerPresentation.driverMarkerCategory(
+                            driver.vehicleCategory) ==
+                          'scooter')
+                      .length,
                     offlineDrivers: _drivers.values
                         .where((driver) => !driver.isOnline)
                         .length,
@@ -1029,6 +1307,9 @@ class _MapMarkerDetails {
     required this.status,
     required this.updatedAt,
     required this.statusColor,
+    this.rideId,
+    this.rideStatus,
+    this.deliveryPaymentCollected = false,
   });
 
   final LatLng position;
@@ -1038,6 +1319,9 @@ class _MapMarkerDetails {
   final String status;
   final String updatedAt;
   final Color statusColor;
+  final int? rideId;
+  final String? rideStatus;
+  final bool deliveryPaymentCollected;
 }
 
 class _DriverLocation {
@@ -1049,6 +1333,7 @@ class _DriverLocation {
     required this.longitude,
     required this.isOnline,
     required this.status,
+    this.vehicleCategory,
     required this.updatedAt,
   });
 
@@ -1059,6 +1344,7 @@ class _DriverLocation {
   final double longitude;
   final bool isOnline;
   final String status;
+  final String? vehicleCategory;
   final DateTime? updatedAt;
 
   LatLng get position => LatLng(latitude, longitude);
@@ -1068,6 +1354,7 @@ class _DriverLocation {
     String? fallbackStatus,
     String? fallbackFullName,
     String? fallbackPhone,
+    String? fallbackVehicleCategory,
   }) {
     final id = (json['id'] as num?)?.toInt();
     final latitude = double.tryParse(json['latitude']?.toString() ?? '');
@@ -1083,6 +1370,11 @@ class _DriverLocation {
       phone: DriverMarkerPresentation.preserveIdentityValue(
         json['phone']?.toString(),
         fallbackPhone,
+      ),
+      vehicleCategory: DriverMarkerPresentation.preserveIdentityValue(
+        json['vehicleCategory']?.toString() ??
+            json['vehicle_category']?.toString(),
+        fallbackVehicleCategory,
       ),
       latitude: latitude,
       longitude: longitude,
@@ -1163,12 +1455,16 @@ class _ActiveRide {
     required this.riderId,
     required this.driverId,
     required this.status,
+    required this.isDelivery,
+    required this.deliveryPaymentCollected,
   });
 
   final int rideId;
   final int riderId;
   final int driverId;
   final String status;
+  final bool isDelivery;
+  final bool deliveryPaymentCollected;
 
   static _ActiveRide? fromJson(Map<dynamic, dynamic> json) {
     final rideId = (json['rideId'] as num?)?.toInt();
@@ -1186,6 +1482,12 @@ class _ActiveRide {
       riderId: riderId,
       driverId: driverId,
       status: status,
+        isDelivery: json['isDelivery'] == true ||
+          json['isDelivery'] == 1 ||
+          json['deliveryDescription'] != null,
+        deliveryPaymentCollected: json['deliveryPaymentCollected'] == true ||
+          json['deliveryPaymentCollected'] == 1 ||
+          json['deliveryPaymentCollectedAt'] != null,
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 bool hasGotalabatOrderDetails(Map<String, dynamic> ride) {
@@ -20,9 +22,16 @@ bool isGotalabatRideField(String key) => const {
     }.contains(key);
 
 class GotalabatRideDetailsSection extends StatelessWidget {
-  const GotalabatRideDetailsSection({required this.ride, super.key});
+  const GotalabatRideDetailsSection({
+    required this.ride,
+    this.imageBytes,
+    this.isLoadingImage = false,
+    super.key,
+  });
 
   final Map<String, dynamic> ride;
+  final Uint8List? imageBytes;
+  final bool isLoadingImage;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +47,8 @@ class GotalabatRideDetailsSection extends StatelessWidget {
       MapEntry('اسم المستلم', _text(ride['recipientName'])),
       MapEntry('هاتف المستلم', _text(ride['recipientPhone'])),
       MapEntry('جهة الدفع', _payer(ride['deliveryPayer'])),
+      if (ride['deliveryPaymentCollectedAt'] != null)
+        const MapEntry('حالة تحصيل الطلب', 'تم الدفع'),
       MapEntry(
         'المبلغ المحصل',
         ride['deliveryPaymentCollected'] == null
@@ -66,31 +77,21 @@ class GotalabatRideDetailsSection extends StatelessWidget {
             padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 12),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: Image.network(
-                imageUrl,
-                height: 210,
-                width: double.infinity,
-                fit: BoxFit.contain,
-                loadingBuilder: (context, child, progress) => progress == null
-                    ? child
-                    : const SizedBox(
-                        height: 160,
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                errorBuilder: (context, error, stackTrace) => Container(
-                  height: 160,
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  alignment: Alignment.center,
-                  child: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.broken_image_outlined),
-                      SizedBox(height: 6),
-                      Text('تعذر تحميل صورة الطلب'),
-                    ],
-                  ),
-                ),
-              ),
+              child: isLoadingImage
+                  ? const SizedBox(
+                      height: 160,
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : imageBytes == null
+                      ? _imageFallback(context)
+                      : Image.memory(
+                          imageBytes!,
+                          height: 210,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) =>
+                              _imageFallback(context),
+                        ),
             ),
           ),
         ...fields.map((field) => Padding(
@@ -126,6 +127,20 @@ class GotalabatRideDetailsSection extends StatelessWidget {
   }
 
   String _text(dynamic value) => value?.toString().trim() ?? '';
+
+  Widget _imageFallback(BuildContext context) => Container(
+        height: 160,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        alignment: Alignment.center,
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.broken_image_outlined),
+            SizedBox(height: 6),
+            Text('تعذر تحميل صورة الطلب'),
+          ],
+        ),
+      );
 
   String _payer(dynamic value) => switch (value?.toString()) {
         'sender' => 'المرسل',

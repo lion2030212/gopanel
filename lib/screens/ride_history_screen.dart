@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -47,9 +48,11 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   List<Map<String, dynamic>> _rides = [];
   Map<String, int> _groupCounts = const <String, int>{};
   Map<String, dynamic>? _ride;
+  Uint8List? _rideImageBytes;
   String? _error;
   bool _loading = false;
   bool _loadingDetails = false;
+  bool _loadingRideImage = false;
   bool _submittingAction = false;
   bool _hasMore = false;
   int _page = 1;
@@ -240,6 +243,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     setState(() {
       _selectedRideId = rideId;
       _ride = null;
+      _rideImageBytes = null;
+      _loadingRideImage = false;
       _loadingDetails = true;
       _error = null;
     });
@@ -255,10 +260,15 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       }
       final data = response.data ?? const {};
       final details = data['ride'];
+      final ride = details is Map ? Map<String, dynamic>.from(details) : null;
       setState(() {
-        _ride = details is Map ? Map<String, dynamic>.from(details) : null;
+        _ride = ride;
         _loadingDetails = false;
       });
+      if (ride != null &&
+          (ride['deliveryImageUrl']?.toString().trim().isNotEmpty ?? false)) {
+        unawaited(_loadRideDeliveryPhoto(rideId, requestId));
+      }
     } on DioException catch (error) {
       if (!mounted ||
           requestId != _detailRequestId ||
@@ -276,6 +286,42 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     }
   }
 
+  Future<void> _loadRideDeliveryPhoto(int rideId, int requestId) async {
+    setState(() => _loadingRideImage = true);
+    try {
+      final response = await _dio.get<List<int>>(
+        '/api/admin/rides/$rideId/delivery-image',
+        options: _requestOptions.copyWith(responseType: ResponseType.bytes),
+      );
+      if (!mounted ||
+          requestId != _detailRequestId ||
+          _selectedRideId != rideId) {
+        return;
+      }
+      final bytes = response.data;
+      setState(() {
+        _rideImageBytes = bytes == null || bytes.isEmpty
+            ? null
+            : Uint8List.fromList(bytes);
+      });
+    } on DioException catch (error) {
+      if (!mounted ||
+          requestId != _detailRequestId ||
+          _selectedRideId != rideId) {
+        return;
+      }
+      if (_isUnauthorized(error)) {
+        widget.onSessionExpired(_messageFrom(error, 'جلسة الإدارة غير صالحة'));
+      }
+    } finally {
+      if (mounted &&
+          requestId == _detailRequestId &&
+          _selectedRideId == rideId) {
+        setState(() => _loadingRideImage = false);
+      }
+    }
+  }
+
   bool _handleDashboardBack() {
     if (_selectedRideId == null) return false;
     if (_submittingAction) return true;
@@ -283,6 +329,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     setState(() {
       _selectedRideId = null;
       _ride = null;
+      _rideImageBytes = null;
+      _loadingRideImage = false;
       _loadingDetails = false;
       _error = null;
     });
@@ -293,13 +341,20 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     final rideId = _selectedRideId;
     if (rideId == null || _submittingAction) return;
     final isCancellation = action == 'cancel';
+    final isUncollectedDeliveryBeforePickup = !isCancellation &&
+        _ride?['status'] == 'arriving' &&
+        _ride?['vehicleCategory'] == 'comfort' &&
+        ['sender', 'recipient'].contains(_ride?['deliveryPayer']) &&
+        _ride?['deliveryPaymentCollectedAt'] == null;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(isCancellation ? 'إلغاء الرحلة مجانًا؟' : 'إنهاء الرحلة؟'),
         content: Text(isCancellation
             ? 'سيتم إلغاء الرحلة دون رسوم أو تسوية للأجرة، حتى إن كانت قد بدأت.'
-            : 'سيتم تسجيل المبلغ النقدي المستلم بصفر، وتطبيق التسوية والمديونية حسب النظام.'),
+            : isUncollectedDeliveryBeforePickup
+                ? 'سيتم إنهاء طلب التوصيل كإلغاء، واحتساب رسوم الإلغاء والانتظار المسجلة دون أجرة التوصيل الكاملة.'
+                : 'سيتم تسجيل المبلغ النقدي المستلم بصفر، وتطبيق التسوية والمديونية حسب النظام.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -319,17 +374,22 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       _error = null;
     });
     try {
-      await _dio.post(
+      final response = await _dio.post(
         '/api/admin/rides/$rideId/$action',
         options: _requestOptions,
       );
+      final actionResult = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : <String, dynamic>{};
       if (!mounted) return;
       await _loadRides(reset: true);
       await _openRide(rideId);
       if (mounted) {
         _showMessage(isCancellation
             ? 'تم إلغاء الرحلة مجانًا'
-            : 'تم إنهاء الرحلة وتسويتها');
+            : actionResult['cancellationReason'] == 'no_show'
+                ? 'تم إنهاء طلب التوصيل برسوم إلغاء ${(actionResult['totalFee'] as num?)?.toStringAsFixed(2) ?? '0.00'} ج.م'
+                : 'تم إنهاء الرحلة وتسويتها');
       }
     } on DioException catch (error) {
       if (!mounted) return;
@@ -409,13 +469,15 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
         _ => Colors.amber.shade800,
       };
 
-  String _statusLabel(String status) => switch (status) {
+    String _statusLabel(String status, {bool isDelivery = false}) => switch (status) {
         'requested' => 'بانتظار السائق',
-        'accepted' => 'تم قبولها',
-        'arriving' => 'السائق في الطريق',
-        'in_progress' => 'جارية',
+      'accepted' => isDelivery
+      ? 'الكابتن في الطريق لاستلام الطلب'
+      : 'الكابتن في الطريق',
+      'arriving' => isDelivery ? 'وصل الكابتن للاستلام' : 'وصل الكابتن',
+      'in_progress' => isDelivery ? 'الطلب قيد التوصيل' : 'الرحلة جارية',
         'cancelled' => 'ملغاة',
-        'completed' => 'مكتملة',
+      'completed' => isDelivery ? 'تم تسليم الطلب' : 'مكتملة',
         _ => status,
       };
 
@@ -535,6 +597,11 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
           final ride = _rides[index];
           final status = '${ride['status'] ?? ''}';
           final rideId = (ride['rideId'] as num?)?.toInt();
+            final isDelivery =
+              ride['deliveryDescription']?.toString().trim().isNotEmpty ??
+                false;
+            final deliveryPaymentCollected =
+              isDelivery && ride['deliveryPaymentCollectedAt'] != null;
           final color = _statusColor(status);
           return Card(
             margin: EdgeInsets.zero,
@@ -546,7 +613,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               leading: Icon(Icons.trip_origin, color: color),
               title: Text('رحلة #${rideId ?? '-'}'),
               subtitle: Text(
-                '${ride['riderName'] ?? 'راكب غير محدد'} · ${_statusLabel(status)}',
+                '${ride['riderName'] ?? 'راكب غير محدد'} · ${_statusLabel(status, isDelivery: isDelivery)}'
+                '${deliveryPaymentCollected ? ' · تم الدفع' : ''}',
               ),
               trailing: const Icon(Icons.chevron_left),
               onTap: rideId == null ? null : () => _openRide(rideId),
@@ -708,7 +776,11 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                             size: 13, color: _statusColor(status))
                         : null,
                   )),
-              GotalabatRideDetailsSection(ride: ride),
+              GotalabatRideDetailsSection(
+                ride: ride,
+                imageBytes: _rideImageBytes,
+                isLoadingImage: _loadingRideImage,
+              ),
               ...fields.skip(6).map((field) => ListTile(
                     dense: true,
                     title: Text(field.key),

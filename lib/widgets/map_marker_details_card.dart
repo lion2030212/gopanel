@@ -9,6 +9,9 @@ class MapMarkerDetailsCard extends StatelessWidget {
     required this.updatedAt,
     required this.statusColor,
     required this.onDismiss,
+    this.rideId,
+    this.rideStatus,
+    this.deliveryPaymentCollected = false,
     super.key,
   });
 
@@ -19,6 +22,9 @@ class MapMarkerDetailsCard extends StatelessWidget {
   final String updatedAt;
   final Color statusColor;
   final VoidCallback onDismiss;
+  final int? rideId;
+  final String? rideStatus;
+  final bool deliveryPaymentCollected;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +76,16 @@ class MapMarkerDetailsCard extends StatelessWidget {
                 value: status,
                 valueColor: statusColor,
               ),
+              if (rideId != null)
+                _DetailRow(label: 'رقم الرحلة', value: '#$rideId'),
+              if (rideStatus != null)
+                _DetailRow(label: 'حالة الرحلة', value: rideStatus!),
+              if (deliveryPaymentCollected)
+                _DetailRow(
+                  label: 'حالة تحصيل الطلب',
+                  value: 'تم الدفع',
+                  valueColor: Colors.green.shade700,
+                ),
               _DetailRow(
                 label: 'آخر تحديث',
                 value: updatedAt,

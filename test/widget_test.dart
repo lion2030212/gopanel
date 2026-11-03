@@ -5,7 +5,10 @@
 // gestures. You can also use WidgetTester to find child widgets in the widget
 // tree, read text, and verify that the values of widget properties are correct.
 
+import 'dart:typed_data';
+
 import 'package:admin_panel/core/driver_marker_presentation.dart';
+import 'package:admin_panel/core/map_search_presentation.dart';
 import 'package:admin_panel/core/ride_route_presentation.dart';
 import 'package:admin_panel/screens/notification_screen.dart';
 import 'package:admin_panel/screens/coupon_management_screen.dart';
@@ -107,12 +110,14 @@ void main() {
 
   testWidgets('map stats show live counts in a vertical circular stack',
       (tester) async {
-    var onlineDrivers = 3;
+    var onlineGoFast = 13;
 
     Widget buildOverlay() => MaterialApp(
           home: Scaffold(
             body: MapStatsOverlay(
-              onlineDrivers: onlineDrivers,
+              onlineGoFast: onlineGoFast,
+              onlineGoTalabat: 11,
+              onlineGoScooter: 17,
               offlineDrivers: 2,
               riders: 7,
               activeRides: 4,
@@ -122,13 +127,21 @@ void main() {
 
     await tester.pumpWidget(buildOverlay());
 
-    expect(find.text('3'), findsOneWidget);
+    expect(find.text('13'), findsOneWidget);
+    expect(find.text('11'), findsOneWidget);
+    expect(find.text('17'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
     expect(find.text('7'), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
+    expect(find.text('GoFast'), findsOneWidget);
+    expect(find.text('GoTalabat'), findsOneWidget);
+    expect(find.text('GoScooter'), findsOneWidget);
+    expect(find.byType(Image), findsNWidgets(3));
 
     final labels = [
-      'سائقون أونلاين',
+      'GoFast',
+      'GoTalabat',
+      'GoScooter',
       'سائقون أوفلاين',
       'ركاب بالخريطة',
       'رحلات نشطة',
@@ -137,10 +150,10 @@ void main() {
         labels.map((label) => tester.getTopLeft(find.text(label)).dy).toList();
     expect(labelTops, orderedEquals([...labelTops]..sort()));
 
-    onlineDrivers = 8;
+    onlineGoFast = 18;
     await tester.pumpWidget(buildOverlay());
-    expect(find.text('8'), findsOneWidget);
-    expect(find.text('3'), findsNothing);
+    expect(find.text('18'), findsOneWidget);
+    expect(find.text('13'), findsNothing);
   });
 
   testWidgets('coupon management filters validity and creates a public coupon',
@@ -1071,6 +1084,29 @@ void main() {
     expect(online.color, DriverMarkerPresentation.onlineColor);
     expect(active.label, 'في رحلة');
     expect(active.color, DriverMarkerPresentation.activeRideColor);
+    expect(
+      DriverMarkerPresentation.formatLastUpdated(
+        DateTime(2026, 10, 19, 12, 0, 43),
+      ),
+      '2026-10-19 12:00:43',
+    );
+    expect(DriverMarkerPresentation.formatLastUpdated(null), 'غير متوفر');
+    expect(
+      DriverMarkerPresentation.driverMarkerAssetForCategory('comfort'),
+      'web/dev.png',
+    );
+    expect(
+      DriverMarkerPresentation.driverMarkerAssetForCategory('scooter'),
+      'web/sco.png',
+    );
+    expect(
+      DriverMarkerPresentation.driverMarkerAssetForCategory('standard'),
+      'web/car.png',
+    );
+    expect(
+      DriverMarkerPresentation.driverMarkerAssetForCategory('unknown'),
+      'web/car.png',
+    );
     expect(DriverMarkerPresentation.firstName('  سارة أحمد  '), 'سارة');
     expect(DriverMarkerPresentation.firstName(''), '');
     expect(
@@ -1105,12 +1141,29 @@ void main() {
         await DriverMarkerPresentation.driverMarkerIcon(online.color);
     final activeIcon =
         await DriverMarkerPresentation.driverMarkerIcon(active.color);
+    final gotalabatIcon = await DriverMarkerPresentation.driverMarkerIcon(
+      online.color,
+      vehicleCategory: 'comfort',
+    );
+    final scooterIcon = await DriverMarkerPresentation.driverMarkerIcon(
+      online.color,
+      vehicleCategory: 'scooter',
+    );
+    final offlineGotalabatIcon =
+        await DriverMarkerPresentation.driverMarkerIcon(
+      offline.color,
+      vehicleCategory: 'comfort',
+    );
 
     expect(offlineIcon, isA<BytesMapBitmap>());
     expect(onlineIcon, isA<BytesMapBitmap>());
     expect(activeIcon, isA<BytesMapBitmap>());
     expect(offlineIcon, isNot(onlineIcon));
     expect(onlineIcon, isNot(activeIcon));
+    expect(gotalabatIcon, isA<BytesMapBitmap>());
+    expect(scooterIcon, isA<BytesMapBitmap>());
+    expect(gotalabatIcon, isNot(scooterIcon));
+    expect(gotalabatIcon, isNot(offlineGotalabatIcon));
   });
 
   test('rider marker color changes while a ride is active', () async {
@@ -1156,6 +1209,9 @@ void main() {
           status: 'في رحلة',
           updatedAt: '2026-10-19 12:00:00',
           statusColor: DriverMarkerPresentation.activeRideColor,
+          rideId: 41,
+          rideStatus: 'وصل الكابتن',
+          deliveryPaymentCollected: true,
           onDismiss: () => dismissed = true,
         ),
       ),
@@ -1168,6 +1224,12 @@ void main() {
     expect(find.text('+201000000008'), findsOneWidget);
     expect(find.text('الحالة'), findsOneWidget);
     expect(find.text('في رحلة'), findsOneWidget);
+    expect(find.text('رقم الرحلة'), findsOneWidget);
+    expect(find.text('#41'), findsOneWidget);
+    expect(find.text('حالة الرحلة'), findsOneWidget);
+    expect(find.text('وصل الكابتن'), findsOneWidget);
+    expect(find.text('حالة تحصيل الطلب'), findsOneWidget);
+    expect(find.text('تم الدفع'), findsOneWidget);
     expect(find.text('آخر تحديث'), findsOneWidget);
     expect(find.text('2026-10-19 12:00:00'), findsOneWidget);
     expect(
@@ -1191,6 +1253,39 @@ void main() {
     expect(
       colors,
       RideRoutePresentation.colorsForRideIds([41, 27, 12]),
+    );
+  });
+
+  test('map search matches names, normalized phone numbers, and ride ids', () {
+    expect(
+      MapSearchPresentation.matchesIdentity(
+        query: 'سارة',
+        name: 'سارة أحمد',
+      ),
+      isTrue,
+    );
+    expect(
+      MapSearchPresentation.matchesIdentity(
+        query: '+201000000008',
+        phone: '+20 100-000-0008',
+      ),
+      isTrue,
+    );
+    expect(
+      MapSearchPresentation.matchesIdentity(
+        query: 'سارة',
+        name: 'منى حسن',
+        phone: '+201000000008',
+      ),
+      isFalse,
+    );
+    expect(
+      MapSearchPresentation.matchesRideId(query: '0042', rideId: 42),
+      isTrue,
+    );
+    expect(
+      MapSearchPresentation.matchesRideId(query: '42', rideId: 142),
+      isFalse,
     );
   });
 
@@ -1833,14 +1928,34 @@ void main() {
       ),
     ));
 
-    final image = tester.widget<Image>(find.byType(Image));
-    final fallback = image.errorBuilder!(
-      tester.element(find.byType(Image)),
-      Exception('image unavailable'),
-      StackTrace.current,
-    );
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: fallback)));
     expect(find.text('تعذر تحميل صورة الطلب'), findsOneWidget);
+  });
+
+  testWidgets('GoTalabat order image uses fetched bytes', (tester) async {
+    final imageBytes = Uint8List.fromList([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+      0x89, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
+      0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+      0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+      0x42, 0x60, 0x82,
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: GotalabatRideDetailsSection(
+          ride: const {
+            'deliveryDescription': 'مستندات',
+            'deliveryImageUrl': 'https://example.test/order.jpg',
+          },
+          imageBytes: imageBytes,
+        ),
+      ),
+    ));
+
+    expect(tester.widget<Image>(find.byType(Image)).image, isA<MemoryImage>());
   });
 
   testWidgets('ride history shows colored groups and guarded ride actions',
@@ -1848,6 +1963,17 @@ void main() {
     var activeStatus = 'in_progress';
     var settlementReversed = false;
     final requests = <RequestOptions>[];
+    final orderImageBytes = Uint8List.fromList([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+      0x89, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
+      0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+      0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+      0x42, 0x60, 0x82,
+    ]);
     final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
 
     Map<String, dynamic> rideRecord(int rideId, String status) => {
@@ -1881,6 +2007,7 @@ void main() {
           'riderRefundAmount': status == 'completed' ? 50 : 0,
           if (rideId == 41) ...{
             'deliveryDescription': 'مستندات وملابس',
+            'deliveryImageUrl': 'https://example.test/order.jpg',
             'pickupRegion': 'مدينة نصر',
             'pickupLandmark': 'شارع النصر',
             'dropoffRegion': 'وسط البلد',
@@ -1900,6 +2027,15 @@ void main() {
     client.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
         requests.add(options);
+        if (options.method == 'GET' &&
+            options.path == '/api/admin/rides/41/delivery-image') {
+          handler.resolve(Response(
+            requestOptions: options,
+            statusCode: 200,
+            data: orderImageBytes,
+          ));
+          return;
+        }
         if (options.method == 'GET' && options.path == '/api/admin/rides') {
           final group = options.queryParameters['group'];
           final rides = switch (group) {
@@ -1970,6 +2106,10 @@ void main() {
     expect(find.text('النشطة (4)'), findsOneWidget);
     expect(find.text('الملغاة (2)'), findsOneWidget);
     expect(find.text('المكتملة (1)'), findsOneWidget);
+    expect(
+      find.textContaining('محمد راكب · الطلب قيد التوصيل · تم الدفع'),
+      findsOneWidget,
+    );
     expect(find.text('أسبوع'), findsOneWidget);
     expect(requests.first.queryParameters['startAt'], isNotNull);
     expect(requests.first.queryParameters['endAt'], isNotNull);
@@ -2075,6 +2215,9 @@ void main() {
 
     await tester.tap(find.text('رحلة #41'));
     await tester.pumpAndSettle();
+    final imageRequest = requests.singleWhere((request) =>
+      request.path == '/api/admin/rides/41/delivery-image');
+    expect(imageRequest.headers['Authorization'], 'Bearer admin-token');
     expect(find.byIcon(Icons.arrow_back), findsOneWidget);
     expect(find.text('محمد راكب'), findsOneWidget);
     expect(find.text('أحمد سائق'), findsOneWidget);
@@ -2084,6 +2227,8 @@ void main() {
     expect(find.text('سارة محمد'), findsOneWidget);
     expect(find.text('المبلغ المحصل'), findsOneWidget);
     expect(find.text('25.00 ج.م'), findsOneWidget);
+    expect(find.text('حالة تحصيل الطلب'), findsOneWidget);
+    expect(find.text('تم الدفع'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('نقطة الانطلاق'),
       200,

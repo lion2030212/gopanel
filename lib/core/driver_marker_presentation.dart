@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:intl/intl.dart';
 
 class DriverMarkerPresentation {
   const DriverMarkerPresentation({required this.label, required this.color});
@@ -27,6 +28,10 @@ class DriverMarkerPresentation {
     return normalized == null || normalized.isEmpty ? existing : normalized;
   }
 
+  static String formatLastUpdated(DateTime? value) => value == null
+      ? 'غير متوفر'
+      : DateFormat('yyyy-MM-dd HH:mm:ss').format(value.toLocal());
+
   static InfoWindow infoWindow({
     required String role,
     required int id,
@@ -45,8 +50,9 @@ class DriverMarkerPresentation {
   }
 
   static final Map<Color, Future<BitmapDescriptor>> _markerIcons = {};
-  static final Map<Color, Future<BitmapDescriptor>> _driverMarkerIcons = {};
-  static Future<ui.Image>? _carImage;
+  static final Map<(String, Color), Future<BitmapDescriptor>>
+      _driverMarkerIcons = {};
+  static final Map<String, Future<ui.Image>> _driverImages = {};
 
   static DriverMarkerPresentation fromDriver({
     required bool isOnline,
@@ -79,11 +85,30 @@ class DriverMarkerPresentation {
   static Future<BitmapDescriptor> markerIcon(Color color) =>
       _markerIcons.putIfAbsent(color, () => _createMarkerIcon(color));
 
-  static Future<BitmapDescriptor> driverMarkerIcon(Color color) =>
-      _driverMarkerIcons.putIfAbsent(
-        color,
-        () => _createDriverMarkerIcon(color),
-      );
+  static String driverMarkerCategory(String? vehicleCategory) =>
+      switch (vehicleCategory) {
+        'comfort' => 'comfort',
+        'scooter' => 'scooter',
+        _ => 'standard',
+      };
+
+  static String driverMarkerAssetForCategory(String? vehicleCategory) =>
+      switch (driverMarkerCategory(vehicleCategory)) {
+        'comfort' => 'web/dev.png',
+        'scooter' => 'web/sco.png',
+        _ => 'web/car.png',
+      };
+
+  static Future<BitmapDescriptor> driverMarkerIcon(
+    Color color, {
+    String? vehicleCategory,
+  }) {
+    final assetPath = driverMarkerAssetForCategory(vehicleCategory);
+    return _driverMarkerIcons.putIfAbsent(
+      (assetPath, color),
+      () => _createDriverMarkerIcon(color, assetPath: assetPath),
+    );
+  }
 
   static Future<BitmapDescriptor> _createMarkerIcon(Color color) async {
     const imageWidth = 72;
@@ -130,33 +155,41 @@ class DriverMarkerPresentation {
     );
   }
 
-  static Future<BitmapDescriptor> _createDriverMarkerIcon(Color color) async {
+  static Future<BitmapDescriptor> _createDriverMarkerIcon(
+    Color color, {
+    required String assetPath,
+  }) async {
     const imageSize = 84;
-    final carImage = await (_carImage ??= _loadCarImage());
-    final coloredCarImage = await _colorizeCarBody(carImage, color);
+    final driverImage = await (_driverImages[assetPath] ??=
+        _loadDriverImage(assetPath));
+    final coloredDriverImage = assetPath == 'web/car.png'
+        ? await _colorizeCarBody(driverImage, color)
+        : await _colorizeDriverImage(driverImage, color);
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    final carAspectRatio = coloredCarImage.width / coloredCarImage.height;
-    final carWidth = carAspectRatio >= 1.2 ? 68.0 : 56.0 * carAspectRatio;
-    final carHeight = carWidth / carAspectRatio;
-    final carRect = Rect.fromLTWH(
-      (imageSize - carWidth) / 2,
-      (imageSize - carHeight) / 2 - 5,
-      carWidth,
-      carHeight,
+    final driverAspectRatio =
+        coloredDriverImage.width / coloredDriverImage.height;
+    final driverWidth =
+      (driverAspectRatio >= 1.2 ? 68.0 : 56.0 * driverAspectRatio) * 1.12;
+    final driverHeight = driverWidth / driverAspectRatio;
+    final driverRect = Rect.fromLTWH(
+      (imageSize - driverWidth) / 2,
+      (imageSize - driverHeight) / 2 - 5,
+      driverWidth,
+      driverHeight,
     );
     canvas.drawImageRect(
-      coloredCarImage,
+      coloredDriverImage,
       Rect.fromLTWH(
         0,
         0,
-        coloredCarImage.width.toDouble(),
-        coloredCarImage.height.toDouble(),
+        coloredDriverImage.width.toDouble(),
+        coloredDriverImage.height.toDouble(),
       ),
-      carRect,
+      driverRect,
       Paint()..filterQuality = FilterQuality.high,
     );
-    coloredCarImage.dispose();
+    coloredDriverImage.dispose();
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(imageSize, imageSize);
@@ -190,9 +223,9 @@ class DriverMarkerPresentation {
       final red = pixels[offset];
       final green = pixels[offset + 1];
       final blue = pixels[offset + 2];
-      final isOrangeBody =
-          red > 70 && red - green > 18 && green - blue > 12;
-      if (!isOrangeBody) continue;
+        final isBlueBody =
+          blue > 100 && blue - red > 30 && blue - green > 20;
+        if (!isBlueBody) continue;
 
       final lightness = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
       final replacement = targetColor
@@ -228,8 +261,75 @@ class DriverMarkerPresentation {
     }
   }
 
-  static Future<ui.Image> _loadCarImage() async {
-    final data = await rootBundle.load('web/car.png');
+  static Future<ui.Image> _colorizeDriverImage(
+    ui.Image driverImage,
+    Color color,
+  ) async {
+    final byteData = await driverImage.toByteData(
+      format: ui.ImageByteFormat.rawRgba,
+    );
+    if (byteData == null) {
+      throw StateError('تعذر تعديل لون أيقونة السائق');
+    }
+
+    final pixels = byteData.buffer.asUint8List(
+      byteData.offsetInBytes,
+      byteData.lengthInBytes,
+    );
+    final targetColor = HSLColor.fromColor(color);
+    for (var offset = 0; offset < pixels.length; offset += 4) {
+      if (pixels[offset + 3] == 0) continue;
+      final sourceColor = HSLColor.fromColor(Color.fromARGB(
+        255,
+        pixels[offset],
+        pixels[offset + 1],
+        pixels[offset + 2],
+      ));
+      if (sourceColor.saturation < 0.12) continue;
+
+      final replacement = targetColor
+          .withLightness(sourceColor.lightness.clamp(0.18, 0.82))
+          .toColor();
+      pixels[offset] = (replacement.r * 255).round().clamp(0, 255).toInt();
+      pixels[offset + 1] =
+          (replacement.g * 255).round().clamp(0, 255).toInt();
+      pixels[offset + 2] =
+          (replacement.b * 255).round().clamp(0, 255).toInt();
+    }
+
+    return _imageFromRgba(pixels, driverImage.width, driverImage.height);
+  }
+
+  static Future<ui.Image> _imageFromRgba(
+    Uint8List pixels,
+    int width,
+    int height,
+  ) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(pixels);
+    try {
+      final descriptor = ui.ImageDescriptor.raw(
+        buffer,
+        width: width,
+        height: height,
+        pixelFormat: ui.PixelFormat.rgba8888,
+      );
+      try {
+        final codec = await descriptor.instantiateCodec();
+        try {
+          return (await codec.getNextFrame()).image;
+        } finally {
+          codec.dispose();
+        }
+      } finally {
+        descriptor.dispose();
+      }
+    } finally {
+      buffer.dispose();
+    }
+  }
+
+  static Future<ui.Image> _loadDriverImage(String assetPath) async {
+    final data = await rootBundle.load(assetPath);
     final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
     final frame = await codec.getNextFrame();
     codec.dispose();
