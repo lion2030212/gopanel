@@ -10,6 +10,7 @@ import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 import '../core/admin_firebase_photo_storage.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/staff_smart_report_tab.dart';
 import '../widgets/staff_sent_notifications_tab.dart';
 import '../widgets/support_history_tab.dart';
 
@@ -690,6 +691,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
       const Tab(text: 'تسجيل الدخول'),
       const Tab(text: 'البيانات الشخصية'),
       const Tab(text: 'التقييمات'),
+      const Tab(text: 'التقرير الذكي'),
       const Tab(text: 'التنبيهات المرسلة'),
     ];
     final tabViews = <Widget>[
@@ -749,6 +751,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
         ],
       ),
       _StaffRatingsTab(
+        staffId: staffId,
+        client: _dio,
+        adminToken: widget.adminToken,
+        onSessionExpired: widget.onSessionExpired,
+      ),
+      StaffSmartReportTab(
+        key: ValueKey('smart-report-$staffId'),
         staffId: staffId,
         client: _dio,
         adminToken: widget.adminToken,

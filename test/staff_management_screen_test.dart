@@ -50,6 +50,38 @@ void main() {
           return;
         }
         if (options.method == 'GET' &&
+            options.path.endsWith('/smart-report')) {
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {
+              'success': true,
+              'report': {
+                'current': {
+                  'range': {
+                    'startAt': '2026-11-01 00:00:00',
+                    'endAt': '2026-11-04 10:00:00',
+                  },
+                  'conversations': {'closed': 1},
+                  'tickets': {'resolved': 0},
+                  'ratings': {'average': null, 'count': 0},
+                },
+                'previous': {
+                  'conversations': {'closed': 0},
+                  'tickets': {'resolved': 0},
+                  'ratings': {'average': null, 'count': 0},
+                },
+                'comparison': {
+                  'closedConversationsDelta': 1,
+                  'resolvedTicketsDelta': 0,
+                  'ratingsCountDelta': 0,
+                  'averageRatingDelta': null,
+                },
+              },
+            },
+          ));
+          return;
+        }
+        if (options.method == 'GET' &&
             (options.path.startsWith('/api/admin/staff/') ||
                 options.path == '/api/admin/staff/ratings/general')) {
           final generalAdmin = options.path.endsWith('/general');
@@ -339,6 +371,27 @@ void main() {
     await tester.tap(find.byTooltip('تعديل البيانات'));
     await tester.pumpAndSettle();
     expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+  });
+
+  testWidgets('smart report loads for the selected staff profile', (tester) async {
+    final requests = <RequestOptions>[];
+    await pumpStaffScreen(tester, createClient(requests));
+    await tester.tap(find.text('ليلى حسن'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('التقرير الذكي'));
+    await tester.tap(find.text('التقرير الذكي'));
+    await tester.pumpAndSettle();
+
+    final reportRequest = requests.singleWhere(
+      (request) => request.path == '/api/admin/staff/2/smart-report',
+    );
+    expect(reportRequest.queryParameters['period'], 'month');
+    await tester.scrollUntilVisible(
+      find.text('محادثات مغلقة'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('محادثات مغلقة'), findsOneWidget);
   });
 
   testWidgets('employee sent notifications show recipient and status counts',

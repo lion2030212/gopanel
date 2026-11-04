@@ -23,6 +23,7 @@ class DriverSmartReportTab extends StatefulWidget {
 
 class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
   String _period = 'month';
+  DateTimeRange? _customRange;
   Map<String, dynamic>? _report;
   String? _error;
   bool _loading = true;
@@ -38,8 +39,41 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
     unawaited(_loadReport());
   }
 
+  String _dateParameter(DateTime date) =>
+      '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
+  Future<void> _selectCustomRange() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final customRange = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000),
+      lastDate: today,
+      initialDateRange: _customRange ?? DateTimeRange(start: today, end: today),
+      helpText: 'اختر مدة التقرير',
+      cancelText: 'إلغاء',
+      confirmText: 'تطبيق',
+      saveText: 'تطبيق',
+    );
+    if (!mounted || customRange == null) return;
+    setState(() {
+      _period = 'custom';
+      _customRange = DateTimeRange(
+        start: DateUtils.dateOnly(customRange.start),
+        end: DateUtils.dateOnly(customRange.end),
+      );
+    });
+    unawaited(_loadReport());
+  }
+
   Future<void> _loadReport() async {
     final requestId = ++_requestId;
+    final queryParameters = <String, dynamic>{'period': _period};
+    if (_period == 'custom' && _customRange != null) {
+      queryParameters['startAt'] = _dateParameter(_customRange!.start);
+      queryParameters['endAt'] = _dateParameter(_customRange!.end);
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -47,7 +81,7 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
     try {
       final response = await widget.client.get<Map<String, dynamic>>(
         '/api/admin/drivers/${widget.driverId}/smart-report',
-        queryParameters: {'period': _period},
+        queryParameters: queryParameters,
         options: _requestOptions,
       );
       if (!mounted || requestId != _requestId) return;
@@ -72,12 +106,11 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
     }
   }
 
-  Map<String, dynamic> _map(Object? value) => value is Map
-      ? Map<String, dynamic>.from(value)
-      : <String, dynamic>{};
+  Map<String, dynamic> _map(Object? value) =>
+      value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
-  String _count(Object? value) => (int.tryParse(value?.toString() ?? '') ?? 0)
-      .toString();
+  String _count(Object? value) =>
+      (int.tryParse(value?.toString() ?? '') ?? 0).toString();
 
   String _percent(Object? value) {
     final rate = double.tryParse(value?.toString() ?? '');
@@ -91,7 +124,9 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
 
   String _hours(Object? value) {
     final seconds = int.tryParse(value?.toString() ?? '');
-    return seconds == null ? 'غير متاح' : '${(seconds / 3600).toStringAsFixed(1)} ساعة';
+    return seconds == null
+        ? 'غير متاح'
+        : '${(seconds / 3600).toStringAsFixed(1)} ساعة';
   }
 
   String _shortDate(Object? value) {
@@ -136,13 +171,13 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
               : constraints.maxWidth >= 440
                   ? 2
                   : 1;
-          final width =
-              (constraints.maxWidth - (12 * (columns - 1))) / columns;
+          final width = (constraints.maxWidth - (12 * (columns - 1))) / columns;
           return Wrap(
             spacing: 12,
             runSpacing: 12,
             children: [
-              for (final child in children) SizedBox(width: width, child: child),
+              for (final child in children)
+                SizedBox(width: width, child: child),
             ],
           );
         },
@@ -157,7 +192,8 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+              Icon(icon,
+                  size: 20, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -204,6 +240,9 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
     final verdictColor = _verdictColor(code, colorScheme);
     final accountStatus = driver['accountStatus']?.toString() ?? 'غير معروف';
     final onlineNow = driver['isOnline'] == true;
+    final rangeEndLabel = _period == 'custom' && _customRange != null
+        ? _dateParameter(_customRange!.end)
+        : _shortDate(range['endAt']);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -212,6 +251,7 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
           children: [
             Expanded(
               child: SegmentedButton<String>(
+                emptySelectionAllowed: true,
                 segments: const [
                   ButtonSegment(
                     value: 'week',
@@ -224,14 +264,28 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
                     icon: Icon(Icons.calendar_month_outlined),
                   ),
                 ],
-                selected: {_period},
+                selected: _period == 'custom' ? <String>{} : {_period},
                 onSelectionChanged: (selection) {
+                  if (selection.isEmpty) return;
                   final selected = selection.first;
                   if (selected == _period) return;
                   setState(() => _period = selected);
                   unawaited(_loadReport());
                 },
               ),
+            ),
+            IconButton(
+              tooltip: 'مدة محددة',
+              onPressed: _selectCustomRange,
+              style: _period == 'custom'
+                  ? IconButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.secondaryContainer,
+                      foregroundColor:
+                          Theme.of(context).colorScheme.onSecondaryContainer,
+                    )
+                  : null,
+              icon: const Icon(Icons.date_range_outlined),
             ),
             IconButton(
               tooltip: 'تحديث التقرير',
@@ -270,7 +324,8 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
                     Chip(label: Text('حالة الحساب: $accountStatus')),
                   ],
                 ),
-                Text('الفترة: ${_shortDate(range['startAt'])} إلى ${_shortDate(range['endAt'])}'),
+                Text(
+                    'الفترة: ${_shortDate(range['startAt'])} إلى $rangeEndLabel'),
                 const SizedBox(height: 4),
                 Text('التوصية إدارية مساعدة ولا تغيّر حالة الحساب تلقائياً.',
                     style: Theme.of(context).textTheme.bodySmall),
@@ -302,7 +357,8 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
           ),
           _metric(
             'فرق ساعات الاتصال',
-            online['currentSeconds'] == null || online['previousSeconds'] == null
+            online['currentSeconds'] == null ||
+                    online['previousSeconds'] == null
                 ? 'غير متاح'
                 : '${_decimal((int.parse(online['currentSeconds'].toString()) - int.parse(online['previousSeconds'].toString())) / 3600)} ساعة',
             'مقارنة بالفترة السابقة المناظرة',
@@ -409,8 +465,9 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
           ),
         if (online['coverageStart'] != null &&
             range['startAt'] != null &&
-            online['coverageStart'].toString().compareTo(
-                    range['startAt'].toString()) >
+            online['coverageStart']
+                    .toString()
+                    .compareTo(range['startAt'].toString()) >
                 0)
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -455,8 +512,7 @@ class _DriverSmartReportTabState extends State<DriverSmartReportTab> {
     return Stack(
       children: [
         _buildReport(report),
-        if (_loading)
-          const LinearProgressIndicator(minHeight: 2),
+        if (_loading) const LinearProgressIndicator(minHeight: 2),
       ],
     );
   }

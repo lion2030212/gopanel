@@ -11,8 +11,59 @@ import '../core/vehicle_categories.dart';
 import '../widgets/gotalabat_ride_details_section.dart';
 import 'coupon_management_screen.dart';
 import '../widgets/dashboard_navigation.dart';
+import '../widgets/rider_smart_report_tab.dart';
 import '../widgets/support_history_tab.dart';
 import '../widgets/user_notifications_tab.dart';
+
+class _TabIndexListener extends StatefulWidget {
+  const _TabIndexListener({
+    required this.onIndexChanged,
+    required this.child,
+  });
+
+  final ValueChanged<int> onIndexChanged;
+  final Widget child;
+
+  @override
+  State<_TabIndexListener> createState() => _TabIndexListenerState();
+}
+
+class _TabIndexListenerState extends State<_TabIndexListener> {
+  TabController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final controller = DefaultTabController.of(context);
+    if (identical(controller, _controller)) return;
+    _controller?.removeListener(_handleControllerChanged);
+    _controller = controller;
+    _controller!.addListener(_handleControllerChanged);
+    _handleControllerChanged();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TabIndexListener oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.onIndexChanged != widget.onIndexChanged) {
+      _handleControllerChanged();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_handleControllerChanged);
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    final controller = _controller;
+    if (controller != null) widget.onIndexChanged(controller.index);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
 class RiderManagementScreen extends StatefulWidget {
   const RiderManagementScreen({
@@ -31,6 +82,8 @@ class RiderManagementScreen extends StatefulWidget {
 }
 
 class _RiderManagementScreenState extends State<RiderManagementScreen> {
+  static const _routeTabIndex = 8;
+
   late final Dio _dio;
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _routeSearchController = TextEditingController();
@@ -64,6 +117,12 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   int _requestId = 0;
   int _detailRequestId = 0;
   int _routeRequestId = 0;
+  bool _routeRequestInFlight = false;
+  bool _routeTabVisible = false;
+  Timer? _routeRefreshTimer;
+  Timer? _routeClockTimer;
+  final ValueNotifier<DateTime> _routeClock =
+      ValueNotifier<DateTime>(DateTime.now());
   Map<String, dynamic>? _selectedRouteRide;
   List<RideTracePoint> _routePoints = const [];
   List<RideWaitPoint> _routeWaitPoints = const [];
@@ -115,6 +174,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
   void dispose() {
     _dashboardBackHandler?.unregister(this);
     _searchTimer?.cancel();
+    _stopRouteMetricTimers();
+    _routeClock.dispose();
     _searchController.dispose();
     _routeSearchController.dispose();
     super.dispose();
@@ -241,7 +302,11 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     final riderId = rider['riderId'];
     if (riderId == null) return;
     final requestId = ++_detailRequestId;
-    if (!preserveProfileState) _routeRequestId++;
+    if (!preserveProfileState) {
+      _routeRequestId++;
+      _routeRequestInFlight = false;
+      _stopRouteMetricTimers();
+    }
     setState(() {
       if (!preserveProfileState) _details = null;
       _loadingDetails = true;
@@ -284,6 +349,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     if (_details == null && !_loadingDetails) return false;
     _detailRequestId++;
     _routeRequestId++;
+    _routeRequestInFlight = false;
+    _stopRouteMetricTimers();
     setState(() {
       _details = null;
       _loadingDetails = false;
@@ -1184,7 +1251,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         : <String, dynamic>{};
 
     return DefaultTabController(
-      length: 11,
+      length: 12,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1251,54 +1318,69 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
               Tab(text: 'مسار الرحلة'),
               Tab(text: 'الشكاوى'),
               Tab(text: 'محادثات خدمة العملاء'),
+              Tab(text: 'التقرير الذكي'),
             ],
           ),
           Expanded(
-            child: TabBarView(
-              children: [
-                _accountTab(profileMap),
-                _rideHistoryTab(
-                  _records(details['rides']),
-                  _records(details['chatMessages']),
-                ),
-                _walletTab(wallet, profileMap),
-                _settlementsTab(financialRecords),
-                _ratingsTab(
-                  _records(details['ratings'])
-                      .where((rating) =>
-                          rating['targetUserId']?.toString() ==
-                          profileMap['riderId']?.toString())
-                      .toList(),
-                  profileMap,
-                ),
-                _couponTab(coupons, profileMap),
-                _activityTab(details),
-                UserNotificationsTab(
-                  key: ValueKey('rider-${profileMap['riderId']}'),
-                  notifications: _records(details['notifications']),
-                ),
-                _rideRouteTab(_records(details['rides']), profileMap),
-                SupportHistoryTab(
-                  client: _dio,
-                  adminToken: widget.adminToken,
-                  userId:
-                      int.tryParse(profileMap['riderId']?.toString() ?? '') ??
-                          0,
-                  userRole: 'rider',
-                  ticketsMode: true,
-                  onSessionExpired: widget.onSessionExpired,
-                ),
-                SupportHistoryTab(
-                  client: _dio,
-                  adminToken: widget.adminToken,
-                  userId:
-                      int.tryParse(profileMap['riderId']?.toString() ?? '') ??
-                          0,
-                  userRole: 'rider',
-                  ticketsMode: false,
-                  onSessionExpired: widget.onSessionExpired,
-                ),
-              ],
+            child: _TabIndexListener(
+              onIndexChanged: _handleProfileTabChanged,
+              child: TabBarView(
+                children: [
+                  _accountTab(profileMap),
+                  _rideHistoryTab(
+                    _records(details['rides']),
+                    _records(details['chatMessages']),
+                  ),
+                  _walletTab(wallet, profileMap),
+                  _settlementsTab(financialRecords),
+                  _ratingsTab(
+                    _records(details['ratings'])
+                        .where((rating) =>
+                            rating['targetUserId']?.toString() ==
+                            profileMap['riderId']?.toString())
+                        .toList(),
+                    profileMap,
+                  ),
+                  _couponTab(coupons, profileMap),
+                  _activityTab(details),
+                  UserNotificationsTab(
+                    key: ValueKey('rider-${profileMap['riderId']}'),
+                    notifications: _records(details['notifications']),
+                  ),
+                  _rideRouteTab(_records(details['rides']), profileMap),
+                  SupportHistoryTab(
+                    client: _dio,
+                    adminToken: widget.adminToken,
+                    userId:
+                        int.tryParse(profileMap['riderId']?.toString() ?? '') ??
+                            0,
+                    userRole: 'rider',
+                    ticketsMode: true,
+                    onSessionExpired: widget.onSessionExpired,
+                  ),
+                  SupportHistoryTab(
+                    client: _dio,
+                    adminToken: widget.adminToken,
+                    userId:
+                        int.tryParse(profileMap['riderId']?.toString() ?? '') ??
+                            0,
+                    userRole: 'rider',
+                    ticketsMode: false,
+                    onSessionExpired: widget.onSessionExpired,
+                  ),
+                  RiderSmartReportTab(
+                    key:
+                        ValueKey('rider-smart-report-${profileMap['riderId']}'),
+                    client: _dio,
+                    adminToken: widget.adminToken,
+                    riderId: int.tryParse(
+                          profileMap['riderId']?.toString() ?? '',
+                        ) ??
+                        0,
+                    onSessionExpired: widget.onSessionExpired,
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -2039,6 +2121,8 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         _routeRideMatchesQuery(ride, profile, query));
     if (selectedId != null && !remainsVisible) {
       _routeRequestId++;
+      _routeRequestInFlight = false;
+      _stopRouteMetricTimers();
       setState(() {
         _selectedRouteRide = null;
         _routePoints = const [];
@@ -2084,28 +2168,43 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     );
   }
 
-  Future<void> _loadRideRoute(Map<String, dynamic> ride) async {
+  Future<void> _loadRideRoute(
+    Map<String, dynamic> ride, {
+    bool refresh = false,
+  }) async {
     final riderId = _details?['profile'] is Map
         ? (_details!['profile'] as Map)['riderId']
         : null;
     final rideId = ride['rideId'] ?? ride['id'];
     if (riderId == null || rideId == null) return;
     final rideIdText = rideId.toString();
-    if (_routeLoadedRideId == rideIdText) {
+    if (_routeRequestInFlight) {
+      final selectedId =
+          (_selectedRouteRide?['rideId'] ?? _selectedRouteRide?['id'])
+              ?.toString();
+      if (refresh || selectedId == rideIdText) return;
+    }
+    if (!refresh && _routeLoadedRideId == rideIdText) {
       setState(() => _selectedRouteRide = ride);
+      _syncRouteMetricTimers();
       return;
     }
 
+    final preserveRoute = refresh && _routeLoadedRideId == rideIdText;
     final requestId = ++_routeRequestId;
+    _routeRequestInFlight = true;
     setState(() {
       _selectedRouteRide = ride;
-      _routePoints = const [];
-      _routeWaitPoints = const [];
-      _routeWaitSeconds = null;
-      _routeError = null;
-      _loadingRoute = true;
-      _routeLoadedRideId = null;
+      if (!preserveRoute) {
+        _routePoints = const [];
+        _routeWaitPoints = const [];
+        _routeWaitSeconds = null;
+        _routeError = null;
+        _loadingRoute = true;
+        _routeLoadedRideId = null;
+      }
     });
+    _syncRouteMetricTimers();
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/admin/riders/$riderId/rides/$rideIdText/route',
@@ -2119,15 +2218,31 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       final waitSeconds = int.tryParse(
         response.data?['waitSeconds']?.toString() ?? '',
       );
+      final updatedRide = Map<String, dynamic>.from(_selectedRouteRide ?? ride);
+      for (final field in [
+        'status',
+        'arrivedAt',
+        'startedAt',
+        'distance',
+        'duration',
+        'traceDistanceKm',
+      ]) {
+        if (response.data?.containsKey(field) == true) {
+          updatedRide[field] = response.data![field];
+        }
+      }
       setState(() {
+        _selectedRouteRide = updatedRide;
         _routePoints = points;
         _routeWaitPoints = waitPoints;
         _routeWaitSeconds = waitSeconds;
         _routeLoadedRideId = rideIdText;
         _loadingRoute = false;
       });
+      _syncRouteMetricTimers();
       final mapController = _routeMapController;
       if (mapController != null &&
+          !preserveRoute &&
           (points.isNotEmpty || waitPoints.isNotEmpty)) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _fitRideRoute(mapController, points, waitPoints);
@@ -2137,16 +2252,59 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       if (!mounted || requestId != _routeRequestId) return;
       if (error.response?.statusCode == 401) {
         widget.onSessionExpired(_messageFrom(error, 'جلسة الإدارة غير صالحة'));
-      } else {
+      } else if (!preserveRoute) {
         setState(() {
           _routeError = _messageFrom(error, 'تعذر تحميل مسار الرحلة');
         });
       }
     } finally {
       if (mounted && requestId == _routeRequestId) {
+        _routeRequestInFlight = false;
         setState(() => _loadingRoute = false);
       }
     }
+  }
+
+  bool _isActiveRouteRide(Map<String, dynamic>? ride) => const {
+        'accepted',
+        'arriving',
+        'in_progress'
+      }.contains(ride?['status']?.toString());
+
+  void _handleProfileTabChanged(int index) {
+    final isVisible = index == _routeTabIndex;
+    if (_routeTabVisible == isVisible) return;
+    _routeTabVisible = isVisible;
+    _syncRouteMetricTimers(refreshImmediately: isVisible);
+  }
+
+  void _syncRouteMetricTimers({bool refreshImmediately = false}) {
+    final ride = _selectedRouteRide;
+    final shouldRefresh = _routeTabVisible && _isActiveRouteRide(ride);
+    if (!shouldRefresh) {
+      _stopRouteMetricTimers();
+      return;
+    }
+
+    _routeClockTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      _routeClock.value = DateTime.now();
+    });
+    _routeRefreshTimer ??= Timer.periodic(const Duration(seconds: 5), (_) {
+      final selectedRide = _selectedRouteRide;
+      if (_routeTabVisible && _isActiveRouteRide(selectedRide)) {
+        unawaited(_loadRideRoute(selectedRide!, refresh: true));
+      }
+    });
+    if (refreshImmediately && ride != null) {
+      unawaited(_loadRideRoute(ride, refresh: true));
+    }
+  }
+
+  void _stopRouteMetricTimers() {
+    _routeRefreshTimer?.cancel();
+    _routeRefreshTimer = null;
+    _routeClockTimer?.cancel();
+    _routeClockTimer = null;
   }
 
   Widget _routeMapView() {
@@ -2157,7 +2315,12 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     }
     if (_routeError != null) return _errorBanner(_routeError!);
     if (_routePoints.isEmpty && _routeWaitPoints.isEmpty) {
-      return _emptyState('لا توجد نقاط GPS مسجلة لهذه الرحلة');
+      return Column(
+        children: [
+          _rideRouteSummary(ride, 0, _routeWaitSeconds, hasApproach: false),
+          Expanded(child: _emptyState('لا توجد نقاط GPS مسجلة لهذه الرحلة')),
+        ],
+      );
     }
 
     final points = _routePoints;
@@ -2214,8 +2377,13 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     int? waitSeconds, {
     required bool hasApproach,
   }) {
+    final isActive = _isActiveRouteRide(ride);
     final distance = double.tryParse(
-      (ride['distance'] ?? ride['traceDistanceKm'])?.toString() ?? '',
+      (isActive
+                  ? ride['traceDistanceKm'] ?? ride['distance']
+                  : ride['distance'] ?? ride['traceDistanceKm'])
+              ?.toString() ??
+          '',
     );
     final duration = double.tryParse(ride['duration']?.toString() ?? '');
     final arrivedAt = _routeDate(ride['arrivedAt']);
@@ -2248,10 +2416,28 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                   ),
                   SizedBox(
                     width: metricWidth,
-                    child: _routeMetric(
-                      'مدة الرحلة',
-                      duration == null ? '--' : '${duration.round()} دقيقة',
-                    ),
+                    child: isActive && startedAt != null
+                        ? ValueListenableBuilder<DateTime>(
+                            valueListenable: _routeClock,
+                            builder: (context, now, _) {
+                              final elapsed = now.difference(startedAt);
+                              final seconds =
+                                  elapsed.isNegative ? 0 : elapsed.inSeconds;
+                              final minutes = seconds ~/ 60;
+                              final remainingSeconds =
+                                  (seconds % 60).toString().padLeft(2, '0');
+                              return _routeMetric(
+                                'مدة الرحلة',
+                                '$minutes دقيقة $remainingSeconds ثانية',
+                              );
+                            },
+                          )
+                        : _routeMetric(
+                            'مدة الرحلة',
+                            duration == null
+                                ? '--'
+                                : '${duration.round()} دقيقة',
+                          ),
                   ),
                   SizedBox(
                     width: metricWidth,

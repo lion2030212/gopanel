@@ -976,8 +976,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         '${driver['phone'] ?? 'بدون هاتف'}  ·  ${driver['licensePlate'] ?? 'بدون لوحة'}\n'
         'آخر رحلة: ${driver['latestRideId'] ?? 'لا توجد'}'
         '${driver['currentRideId'] == null ? '' : '  ·  الحالية: ${driver['currentRideId']}'}\n'
+        'الرصيد: ${driver['balance'] ?? '0.00'}\n'
         'آخر ظهور: ${lastOnlineAt == null ? 'غير معروف' : intl.DateFormat('y/MM/dd HH:mm').format(lastOnlineAt)}',
-        maxLines: 3,
+        maxLines: 4,
       ),
       isThreeLine: true,
       trailing: Row(

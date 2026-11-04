@@ -135,6 +135,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } on DioException catch (_) {}
   }
 
+  Future<void> _logoutManually() async {
+    try {
+      await _dio.post<void>(
+        '/api/admin/logout',
+        options: Options(headers: {
+          'Authorization': 'Bearer ${widget.adminSession.token}',
+        }),
+      );
+    } on DioException {
+      // Local logout must still complete if the server is unreachable.
+    } finally {
+      if (mounted) widget.onLogout(null);
+    }
+  }
+
   Future<void> _loadDrivers() async {
     if (_isLoadingDrivers) return;
     _isLoadingDrivers = true;
@@ -989,7 +1004,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               : 0,
           onLogout: () {
             Navigator.of(context).pop();
-            widget.onLogout(null);
+            unawaited(_logoutManually());
           },
         ),
         body: Stack(

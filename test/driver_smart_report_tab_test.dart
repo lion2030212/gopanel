@@ -6,6 +6,11 @@ import 'package:admin_panel/widgets/driver_smart_report_tab.dart';
 void main() {
   testWidgets('loads the report and requests the selected comparison period',
       (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final requests = <RequestOptions>[];
     final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
     client.interceptors.add(InterceptorsWrapper(
@@ -112,5 +117,27 @@ void main() {
     expect(requests.last.queryParameters['period'], 'week');
     expect(find.text('تشمل الوقت أثناء الرحلة، ولا تعني الجاهزية لطلب جديد'),
         findsOneWidget);
+
+    await tester.tap(find.byTooltip('مدة محددة'));
+    await tester.pumpAndSettle();
+    expect(find.text('اختر مدة التقرير'), findsOneWidget);
+    await tester.tap(find.text('تطبيق'));
+    await tester.pumpAndSettle();
+
+    final today = DateUtils.dateOnly(DateTime.now());
+    String dateParameter(DateTime date) =>
+        '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    expect(requests, hasLength(3));
+    expect(requests.last.queryParameters['period'], 'custom');
+    expect(requests.last.queryParameters['startAt'], dateParameter(today));
+    expect(requests.last.queryParameters['endAt'], dateParameter(today));
+
+    await tester.tap(find.byTooltip('مدة محددة'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(requests, hasLength(3));
   });
 }

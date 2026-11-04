@@ -3259,6 +3259,7 @@ void main() {
               'fullName': 'كابتن بتاريخ',
               'phone': '+201000000000',
               'licensePlate': 'ABC-123',
+              'balance': '42.50',
               'lastOnlineAt': lastOnlineAt,
             },
             {
@@ -3297,6 +3298,9 @@ void main() {
     );
     expect(find.textContaining('آخر ظهور: $formattedLastOnlineAt'),
         findsOneWidget);
+    expect(find.textContaining('الرصيد: 42.50'), findsOneWidget);
+    expect(find.textContaining('الرصيد: 0.00\nآخر ظهور: غير معروف'),
+      findsOneWidget);
     expect(find.textContaining('آخر ظهور: غير معروف'), findsOneWidget);
     expect(requests.first.queryParameters['sortBy'], 'default');
 
