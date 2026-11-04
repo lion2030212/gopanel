@@ -51,6 +51,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
   String? _error;
   bool _loadingList = true;
   bool _loadingDetail = false;
+  bool _refreshing = false;
   bool _sending = false;
   bool _updatingStatus = false;
   int _detailRequestId = 0;
@@ -221,6 +222,18 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     await _loadItems();
     final id = _id(_selectedItem?['id']);
     if (id != null && id == refreshDetailForId) await _loadDetail(id);
+  }
+
+  Future<void> _refreshScreen() async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await _refreshSelectedAndList(
+        refreshDetailForId: _id(_selectedItem?['id']),
+      );
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   Future<void> _selectItem(Map<String, dynamic> item) async {
@@ -489,21 +502,40 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(title: Text(title)),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth < 760) {
-              return _selectedItem == null
-                  ? _buildListPanel(title)
-                  : _buildDetailPanel(showBack: true);
-            }
-            return Row(
-              children: [
-                SizedBox(width: 340, child: _buildListPanel(title)),
-                const VerticalDivider(width: 1),
-                Expanded(child: _buildDetailPanel()),
-              ],
-            );
-          },
+        body: Column(
+          children: [
+            SizedBox(
+              height: 48,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  tooltip:
+                      widget.ticketsMode ? 'تحديث الشكاوى' : 'تحديث المحادثات',
+                  onPressed:
+                      _refreshing ? null : () => unawaited(_refreshScreen()),
+                  icon: const Icon(Icons.refresh),
+                ),
+              ),
+            ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (constraints.maxWidth < 760) {
+                    return _selectedItem == null
+                        ? _buildListPanel(title)
+                        : _buildDetailPanel(showBack: true);
+                  }
+                  return Row(
+                    children: [
+                      SizedBox(width: 340, child: _buildListPanel(title)),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: _buildDetailPanel()),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

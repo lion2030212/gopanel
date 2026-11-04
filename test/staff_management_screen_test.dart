@@ -8,7 +8,7 @@ import 'package:intl/intl.dart' as intl;
 final _sampleTimestamp = DateTime.now().toIso8601String();
 
 String _formattedSampleTimestamp() => intl.DateFormat('y/MM/dd  HH:mm')
-  .format(DateTime.parse(_sampleTimestamp).toLocal());
+    .format(DateTime.parse(_sampleTimestamp).toLocal());
 
 void main() {
   Dio createClient(List<RequestOptions> requests) {
@@ -251,6 +251,15 @@ void main() {
       Directionality.of(tester.element(find.text('ليلى حسن'))),
       TextDirection.rtl,
     );
+    final staffListRequestsBeforeRefresh =
+        requests.where((request) => request.path == '/api/admin/staff').length;
+    await tester.tap(find.byTooltip('تحديث ملف الموظف'));
+    await tester.pumpAndSettle();
+    expect(
+      requests.where((request) => request.path == '/api/admin/staff').length,
+      staffListRequestsBeforeRefresh + 1,
+    );
+    expect(find.byTooltip('العودة للقائمة'), findsOneWidget);
 
     await tester.tap(find.byTooltip('تعديل البيانات'));
     await tester.pumpAndSettle();
@@ -361,15 +370,17 @@ void main() {
     );
     expect(find.text('السائق (1)'), findsOneWidget);
     expect(find.text('الراكب (1)'), findsOneWidget);
-    final initialRequest = requests.firstWhere((request) =>
-      request.path == '/api/admin/staff/1/sent-notifications');
-    final weekStart = DateTime.parse(initialRequest.queryParameters['startAt'] as String);
-    final weekEnd = DateTime.parse(initialRequest.queryParameters['endAt'] as String);
+    final initialRequest = requests.firstWhere(
+        (request) => request.path == '/api/admin/staff/1/sent-notifications');
+    final weekStart =
+        DateTime.parse(initialRequest.queryParameters['startAt'] as String);
+    final weekEnd =
+        DateTime.parse(initialRequest.queryParameters['endAt'] as String);
     expect(weekStart.weekday, DateTime.saturday);
     expect(weekEnd.difference(weekStart), const Duration(days: 7));
     expect(
-      requests.any((request) =>
-          request.path == '/api/admin/staff/1/sent-notifications'),
+      requests.any(
+          (request) => request.path == '/api/admin/staff/1/sent-notifications'),
       isTrue,
     );
 
@@ -396,10 +407,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('اليوم').last);
     await tester.pumpAndSettle();
-    final todayRequest = requests.lastWhere((request) =>
-        request.path == '/api/admin/staff/1/sent-notifications');
-    final todayStart = DateTime.parse(todayRequest.queryParameters['startAt'] as String);
-    final todayEnd = DateTime.parse(todayRequest.queryParameters['endAt'] as String);
+    final todayRequest = requests.lastWhere(
+        (request) => request.path == '/api/admin/staff/1/sent-notifications');
+    final todayStart =
+        DateTime.parse(todayRequest.queryParameters['startAt'] as String);
+    final todayEnd =
+        DateTime.parse(todayRequest.queryParameters['endAt'] as String);
     expect(todayEnd.difference(todayStart), const Duration(days: 1));
     expect(todayRequest.queryParameters['category'], 'promotion');
 
@@ -410,10 +423,12 @@ void main() {
     expect(find.byType(DateRangePickerDialog), findsOneWidget);
     await tester.tap(find.text('تطبيق').last);
     await tester.pumpAndSettle();
-    final customRequest = requests.lastWhere((request) =>
-      request.path == '/api/admin/staff/1/sent-notifications');
-    final customStart = DateTime.parse(customRequest.queryParameters['startAt'] as String);
-    final customEnd = DateTime.parse(customRequest.queryParameters['endAt'] as String);
+    final customRequest = requests.lastWhere(
+        (request) => request.path == '/api/admin/staff/1/sent-notifications');
+    final customStart =
+        DateTime.parse(customRequest.queryParameters['startAt'] as String);
+    final customEnd =
+        DateTime.parse(customRequest.queryParameters['endAt'] as String);
     expect(customEnd.difference(customStart), const Duration(days: 1));
     expect(customRequest.queryParameters['category'], 'promotion');
 
@@ -421,10 +436,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('شهر').last);
     await tester.pumpAndSettle();
-    final monthRequest = requests.lastWhere((request) =>
-      request.path == '/api/admin/staff/1/sent-notifications');
-    final monthStart = DateTime.parse(monthRequest.queryParameters['startAt'] as String);
-    final monthEnd = DateTime.parse(monthRequest.queryParameters['endAt'] as String);
+    final monthRequest = requests.lastWhere(
+        (request) => request.path == '/api/admin/staff/1/sent-notifications');
+    final monthStart =
+        DateTime.parse(monthRequest.queryParameters['startAt'] as String);
+    final monthEnd =
+        DateTime.parse(monthRequest.queryParameters['endAt'] as String);
     expect(monthStart.day, 1);
     expect(monthEnd.day, 1);
     expect(monthStart.month == monthEnd.month, isFalse);
@@ -433,8 +450,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('الكل').last);
     await tester.pumpAndSettle();
-    final allRequest = requests.lastWhere((request) =>
-      request.path == '/api/admin/staff/1/sent-notifications');
+    final allRequest = requests.lastWhere(
+        (request) => request.path == '/api/admin/staff/1/sent-notifications');
     expect(allRequest.queryParameters.containsKey('startAt'), isFalse);
     expect(allRequest.queryParameters.containsKey('endAt'), isFalse);
   });
@@ -486,8 +503,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final activationRequest = requests.lastWhere((request) =>
-      request.method == 'PATCH' &&
-      request.path == '/api/admin/staff/3/status');
+        request.method == 'PATCH' &&
+        request.path == '/api/admin/staff/3/status');
     expect(activationRequest.data['status'], 'active');
   });
 

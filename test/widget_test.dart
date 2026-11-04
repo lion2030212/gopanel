@@ -263,6 +263,10 @@ void main() {
     expect(find.text('مفعّل الآن (5)'), findsOneWidget);
     expect(find.textContaining('جميع الركاب'), findsOneWidget);
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
+    await tester.tap(find.byTooltip('تحديث الكوبونات'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['page'], 1);
+    expect(requests.last.queryParameters['status'], 'all');
     final addButtonWrap = find.ancestor(
       of: find.text('إضافة كوبون'),
       matching: find.byType(Wrap),
@@ -2016,15 +2020,73 @@ void main() {
 
   testWidgets('GoTalabat order image uses fetched bytes', (tester) async {
     final imageBytes = Uint8List.fromList([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-      0x89, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
-      0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
-      0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
-      0x42, 0x60, 0x82,
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+      0x00,
+      0x00,
+      0x00,
+      0x0d,
+      0x49,
+      0x48,
+      0x44,
+      0x52,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x08,
+      0x06,
+      0x00,
+      0x00,
+      0x00,
+      0x1f,
+      0x15,
+      0xc4,
+      0x89,
+      0x00,
+      0x00,
+      0x00,
+      0x0b,
+      0x49,
+      0x44,
+      0x41,
+      0x54,
+      0x78,
+      0x9c,
+      0x63,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x05,
+      0x00,
+      0x01,
+      0x0d,
+      0x0a,
+      0x2d,
+      0xb4,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x49,
+      0x45,
+      0x4e,
+      0x44,
+      0xae,
+      0x42,
+      0x60,
+      0x82,
     ]);
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -2047,15 +2109,73 @@ void main() {
     var settlementReversed = false;
     final requests = <RequestOptions>[];
     final orderImageBytes = Uint8List.fromList([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-      0x89, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41,
-      0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-      0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
-      0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
-      0x42, 0x60, 0x82,
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+      0x00,
+      0x00,
+      0x00,
+      0x0d,
+      0x49,
+      0x48,
+      0x44,
+      0x52,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x00,
+      0x01,
+      0x08,
+      0x06,
+      0x00,
+      0x00,
+      0x00,
+      0x1f,
+      0x15,
+      0xc4,
+      0x89,
+      0x00,
+      0x00,
+      0x00,
+      0x0b,
+      0x49,
+      0x44,
+      0x41,
+      0x54,
+      0x78,
+      0x9c,
+      0x63,
+      0x00,
+      0x01,
+      0x00,
+      0x00,
+      0x05,
+      0x00,
+      0x01,
+      0x0d,
+      0x0a,
+      0x2d,
+      0xb4,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x49,
+      0x45,
+      0x4e,
+      0x44,
+      0xae,
+      0x42,
+      0x60,
+      0x82,
     ]);
     final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
 
@@ -2250,9 +2370,9 @@ void main() {
     expect(refreshRequest.queryParameters['page'], 1);
     expect(refreshRequest.queryParameters['search'], 'ABC-123');
     expect(refreshRequest.queryParameters['startAt'],
-      yesterdayRequest.queryParameters['startAt']);
+        yesterdayRequest.queryParameters['startAt']);
     expect(refreshRequest.queryParameters['endAt'],
-      yesterdayRequest.queryParameters['endAt']);
+        yesterdayRequest.queryParameters['endAt']);
     expect(find.textContaining('محمد راكب · وصل الكابتن'), findsOneWidget);
     activeStatus = 'in_progress';
 
@@ -2312,8 +2432,8 @@ void main() {
 
     await tester.tap(find.text('رحلة #41'));
     await tester.pumpAndSettle();
-    final imageRequest = requests.singleWhere((request) =>
-      request.path == '/api/admin/rides/41/delivery-image');
+    final imageRequest = requests.singleWhere(
+        (request) => request.path == '/api/admin/rides/41/delivery-image');
     expect(imageRequest.headers['Authorization'], 'Bearer admin-token');
     expect(find.byIcon(Icons.arrow_back), findsOneWidget);
     expect(find.text('محمد راكب'), findsOneWidget);
@@ -2767,6 +2887,10 @@ void main() {
     expect(find.text('نشط (1)'), findsOneWidget);
     expect(find.text('غير نشط (2)'), findsOneWidget);
     expect(find.text('موقوف (1)'), findsOneWidget);
+    await tester.tap(find.byTooltip('تحديث قائمة الركاب'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['page'], 1);
+    expect(requests.last.queryParameters['createdPeriod'], 'all');
     await tester.tap(find.text('الأسبوع (7)'));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['createdPeriod'], 'week');
@@ -2806,6 +2930,17 @@ void main() {
     expect(requests.last.queryParameters['sortBy'], 'lastSeen');
     await tester.tap(find.text('أحمد راكب'));
     await tester.pumpAndSettle();
+    final riderDetailsTab = find.byType(Tab).at(1);
+    await tester.ensureVisible(riderDetailsTab);
+    await tester.tap(riderDetailsTab);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('تحديث ملف الراكب'));
+    await tester.pumpAndSettle();
+    expect(requests.last.path, '/api/admin/riders/12');
+    expect(
+      DefaultTabController.of(tester.element(find.byType(TabBar).first)).index,
+      1,
+    );
     expect(find.text('البيانات الشخصية'), findsNothing);
     final riderDeliveryHistoryTab = find.byType(Tab).at(1);
     await tester.ensureVisible(riderDeliveryHistoryTab);
@@ -3079,6 +3214,10 @@ void main() {
       'description': 'تصحيح إداري',
     });
     expect(adjustment.headers['Authorization'], 'Bearer admin-token');
+    expect(
+      DefaultTabController.of(tester.element(find.byType(TabBar).first)).index,
+      2,
+    );
 
     await tester.ensureVisible(find.text('الشكاوى'));
     await tester.tap(find.text('الشكاوى'));
@@ -3133,7 +3272,10 @@ void main() {
           'total': 51,
           'counts': {'all': 2, 'active': 1, 'inactive': 1, 'suspended': 0},
           'categoryCounts': {
-            'all': 2, 'standard': 1, 'comfort': 1, 'scooter': 0,
+            'all': 2,
+            'standard': 1,
+            'comfort': 1,
+            'scooter': 0,
           },
         }));
       },
@@ -3153,9 +3295,15 @@ void main() {
     final formattedLastOnlineAt = intl.DateFormat('y/MM/dd HH:mm').format(
       DateTime.parse(lastOnlineAt).toLocal(),
     );
-    expect(find.textContaining('آخر ظهور: $formattedLastOnlineAt'), findsOneWidget);
+    expect(find.textContaining('آخر ظهور: $formattedLastOnlineAt'),
+        findsOneWidget);
     expect(find.textContaining('آخر ظهور: غير معروف'), findsOneWidget);
     expect(requests.first.queryParameters['sortBy'], 'default');
+
+    await tester.tap(find.byTooltip('تحديث قائمة السائقين'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['page'], 1);
+    expect(requests.last.queryParameters['sortBy'], 'default');
 
     await tester.ensureVisible(find.text('تحميل المزيد'));
     await tester.tap(find.text('تحميل المزيد'));
@@ -3496,6 +3644,11 @@ void main() {
     expect(find.text('GoTalabat دليفيرى (1)'), findsOneWidget);
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
 
+    await tester.tap(find.byTooltip('تحديث قائمة السائقين'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['search'], '');
+    expect(requests.last.queryParameters['page'], 1);
+
     await tester.enterText(find.byType(TextField).first, 'ABC');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
@@ -3516,6 +3669,19 @@ void main() {
 
     await tester.tap(find.text('محمد علي'));
     await tester.pumpAndSettle();
+    final driverVehicleTab = find.byType(Tab).at(1);
+    await tester.ensureVisible(driverVehicleTab);
+    await tester.tap(driverVehicleTab);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('تحديث ملف السائق'));
+    await tester.pumpAndSettle();
+    expect(requests.last.path, '/api/admin/drivers/4');
+    expect(
+      DefaultTabController.of(tester.element(find.byType(TabBar).first)).index,
+      1,
+    );
+    await tester.tap(find.byType(Tab).first);
+    await tester.pumpAndSettle();
     expect(find.widgetWithIcon(IconButton, Icons.arrow_back), findsOneWidget);
     expect(find.text('البيانات الشخصية'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
@@ -3532,6 +3698,29 @@ void main() {
       )),
       findsOneWidget,
     );
+    final driverWalletTab = find.byType(Tab).at(3);
+    await tester.ensureVisible(driverWalletTab);
+    await tester.tap(driverWalletTab);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إضافة / خصم رصيد'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '5.00');
+    await tester.enterText(find.byType(TextField).last, 'تصحيح إداري');
+    await tester.tap(find.text('تأكيد الحركة'));
+    await tester.pumpAndSettle();
+    expect(
+      requests.any((request) =>
+          request.method == 'POST' &&
+          request.path == '/api/admin/drivers/4/wallet-adjustments'),
+      isTrue,
+    );
+    expect(
+      DefaultTabController.of(tester.element(find.byType(TabBar).first)).index,
+      3,
+    );
+    await tester.ensureVisible(find.byType(Tab).first);
+    await tester.tap(find.byType(Tab).first);
+    await tester.pumpAndSettle();
     final driverNotificationsTab = find.byType(Tab).last;
     await tester.ensureVisible(driverNotificationsTab);
     await tester.tap(driverNotificationsTab);

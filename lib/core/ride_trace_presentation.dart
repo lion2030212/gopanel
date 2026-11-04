@@ -258,7 +258,7 @@ class RideTracePresentation {
 
   static List<RideTraceStop> waitingStops(
     List<RideTracePoint> points, {
-    double radiusMeters = 30,
+    double radiusMeters = 10,
     Duration minimumStop = const Duration(minutes: 2),
     double maximumSpeedMps = 0.8,
   }) {
@@ -282,7 +282,10 @@ class RideTracePresentation {
 
     for (final point in points) {
       final speed = point.speedMps;
-      if (speed != null && speed > maximumSpeedMps) {
+      if (speed != null &&
+          speed.isFinite &&
+          speed >= 0 &&
+          speed > maximumSpeedMps) {
         finishCluster();
         continue;
       }
@@ -291,7 +294,7 @@ class RideTracePresentation {
         continue;
       }
       if (point.capturedAtMs < cluster.last.capturedAtMs ||
-          distanceMeters(cluster.first.position, point.position) >
+          distanceMeters(cluster.last.position, point.position) >
               radiusMeters) {
         finishCluster();
         cluster.add(point);
@@ -305,7 +308,7 @@ class RideTracePresentation {
 
   static List<LatLng> waitingLocations(
     List<RideTracePoint> points, {
-    double radiusMeters = 30,
+    double radiusMeters = 10,
     Duration minimumStop = const Duration(minutes: 2),
     double maximumSpeedMps = 0.8,
   }) =>

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:admin_panel/screens/support_management_screen.dart';
+import 'package:admin_panel/widgets/dashboard_navigation.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -300,6 +301,8 @@ void main() {
 
     for (final ticketsMode in [false, true]) {
       final itemId = ticketsMode ? 44 : 11;
+      var collectionRequests = 0;
+      var detailRequests = 0;
       final item = {
         'id': itemId,
         'userId': 8,
@@ -316,6 +319,7 @@ void main() {
               ? '/api/admin/support/tickets'
               : '/api/admin/support/conversations';
           if (options.path == collectionPath) {
+            collectionRequests++;
             handler.resolve(Response(
               requestOptions: options,
               data: {
@@ -324,6 +328,7 @@ void main() {
             ));
             return;
           }
+          detailRequests++;
           handler.resolve(Response(
             requestOptions: options,
             data: {
@@ -347,14 +352,87 @@ void main() {
         ),
       ));
       await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip(
+        ticketsMode ? 'تحديث الشكاوى' : 'تحديث المحادثات',
+      ));
+      await tester.pumpAndSettle();
+      expect(collectionRequests, 2);
+      expect(detailRequests, 0);
       await tester.tap(find.text(ticketsMode ? 'تذكرة #44' : 'سامي علي').first);
       await tester.pumpAndSettle();
+      final collectionRequestsBeforeRefresh = collectionRequests;
+      final detailRequestsBeforeRefresh = detailRequests;
+      await tester.tap(find.byTooltip(
+        ticketsMode ? 'تحديث الشكاوى' : 'تحديث المحادثات',
+      ));
+      await tester.pumpAndSettle();
+      expect(collectionRequests, collectionRequestsBeforeRefresh + 1);
+      expect(detailRequests, detailRequestsBeforeRefresh + 1);
 
       expect(find.byIcon(Icons.done), findsOneWidget);
       expect(find.byIcon(Icons.done_all), findsNWidgets(2));
       expect(find.byTooltip('تم الإرسال'), findsOneWidget);
       expect(find.byTooltip('تم الاستلام'), findsOneWidget);
       expect(find.byTooltip('تم العرض'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('support refresh row sits below dashboard shortcuts',
+      (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final ticketsMode in [false, true]) {
+      final navigationKey = GlobalKey<DashboardNavigationState>();
+      final route = ticketsMode
+          ? DashboardNavigation.supportTicketsRoute
+          : DashboardNavigation.supportConversationsRoute;
+      final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+      client.interceptors.add(InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.resolve(Response(
+            requestOptions: options,
+            data: {ticketsMode ? 'tickets' : 'conversations': []},
+          ));
+        },
+      ));
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: DashboardNavigation(
+            key: navigationKey,
+            homeBuilder: (_) => const SizedBox.shrink(),
+            routes: {
+              route: (_) => SupportManagementScreen(
+                    adminToken: 'admin-token',
+                    onSessionExpired: fail,
+                    ticketsMode: ticketsMode,
+                    client: client,
+                  ),
+            },
+            onRouteChanged: (_) {},
+          ),
+        ),
+      ));
+      navigationKey.currentState!.pushNamed(route);
+      await tester.pumpAndSettle();
+
+      final refreshButton = find.byTooltip(
+        ticketsMode ? 'تحديث الشكاوى' : 'تحديث المحادثات',
+      );
+      expect(refreshButton, findsOneWidget);
+      expect(
+        tester.getTopLeft(refreshButton).dy,
+        greaterThan(tester.getBottomLeft(find.byTooltip('رجوع')).dy),
+      );
+      expect(
+        tester.getCenter(refreshButton).dx,
+        lessThan(tester.view.physicalSize.width / 2),
+      );
 
       await tester.pumpWidget(const SizedBox.shrink());
     }

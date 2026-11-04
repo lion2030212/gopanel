@@ -234,24 +234,29 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
     }
   }
 
-  Future<void> _openRider(Map<String, dynamic> rider) async {
+  Future<void> _openRider(
+    Map<String, dynamic> rider, {
+    bool preserveProfileState = false,
+  }) async {
     final riderId = rider['riderId'];
     if (riderId == null) return;
     final requestId = ++_detailRequestId;
-    _routeRequestId++;
+    if (!preserveProfileState) _routeRequestId++;
     setState(() {
-      _details = null;
+      if (!preserveProfileState) _details = null;
       _loadingDetails = true;
       _error = null;
-      _selectedRouteRide = null;
-      _routePoints = const [];
-      _routeWaitPoints = const [];
-      _routeWaitSeconds = null;
-      _routeError = null;
-      _routeLoadedRideId = null;
-      _loadingRoute = false;
+      if (!preserveProfileState) {
+        _selectedRouteRide = null;
+        _routePoints = const [];
+        _routeWaitPoints = const [];
+        _routeWaitSeconds = null;
+        _routeError = null;
+        _routeLoadedRideId = null;
+        _loadingRoute = false;
+      }
     });
-    _routeSearchController.clear();
+    if (!preserveProfileState) _routeSearchController.clear();
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/admin/riders/$riderId',
@@ -454,7 +459,10 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
         data: adjustment,
         options: _requestOptions,
       );
-      await _openRider({'riderId': profile['riderId']});
+      await _openRider(
+        {'riderId': profile['riderId']},
+        preserveProfileState: true,
+      );
       if (mounted) _showMessage('تم تسجيل حركة المحفظة');
     } on DioException catch (error) {
       _handleRequestError(error, 'تعذر تعديل المحفظة');
@@ -530,11 +538,23 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-          child: Text('إدارة الركاب',
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineSmall
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text('إدارة الركاب',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+              ),
+              IconButton(
+                tooltip: 'تحديث قائمة الركاب',
+                onPressed:
+                    _loading ? null : () => unawaited(_loadRiders(reset: true)),
+                icon: const Icon(Icons.refresh),
+              ),
+            ],
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1127,7 +1147,7 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
       );
 
   Widget _buildRiderProfile() {
-    if (_loadingDetails) {
+    if (_loadingDetails && _details == null) {
       return const Center(child: CircularProgressIndicator());
     }
     final details = _details;
@@ -1201,9 +1221,22 @@ class _RiderManagementScreenState extends State<RiderManagementScreen> {
                       ? Icons.block_outlined
                       : Icons.check_circle_outline),
                 ),
+                IconButton(
+                  tooltip: 'تحديث ملف الراكب',
+                  onPressed: _loadingDetails
+                      ? null
+                      : () => unawaited(
+                            _openRider(
+                              {'riderId': profileMap['riderId']},
+                              preserveProfileState: true,
+                            ),
+                          ),
+                  icon: const Icon(Icons.refresh),
+                ),
               ],
             ),
           ),
+          if (_error != null) _errorBanner(_error!),
           const TabBar(
             isScrollable: true,
             tabs: [

@@ -180,12 +180,15 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
     }
   }
 
-  Future<void> _openDriver(Map<String, dynamic> driver) async {
+  Future<void> _openDriver(
+    Map<String, dynamic> driver, {
+    bool preserveProfileState = false,
+  }) async {
     final id = driver['driverId'];
     if (id == null) return;
     final requestId = ++_detailRequestId;
     setState(() {
-      _details = null;
+      if (!preserveProfileState) _details = null;
       _loadingDetails = true;
       _error = null;
     });
@@ -427,7 +430,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
         data: values,
         options: _requestOptions,
       );
-      await _openDriver({'driverId': profile['driverId']});
+      await _openDriver(
+        {'driverId': profile['driverId']},
+        preserveProfileState: true,
+      );
       if (mounted) _showMessage('تم تسجيل حركة المحفظة');
     } on DioException catch (error) {
       _handleRequestError(error, 'تعذر تعديل المحفظة');
@@ -796,6 +802,13 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                 icon: const Icon(Icons.add),
                 label: const Text('إضافة سائق'),
               ),
+              IconButton(
+                tooltip: 'تحديث قائمة السائقين',
+                onPressed: _loading
+                    ? null
+                    : () => unawaited(_loadDrivers(reset: true)),
+                icon: const Icon(Icons.refresh),
+              ),
             ],
           ),
         ),
@@ -867,7 +880,8 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                   segments: [
                     ButtonSegment(
                       value: 'all',
-                      label: Text('كل الفئات (${_vehicleCategoryCounts['all']})'),
+                      label:
+                          Text('كل الفئات (${_vehicleCategoryCounts['all']})'),
                     ),
                     for (final entry in VehicleCategories.labels.entries)
                       ButtonSegment(
@@ -940,11 +954,12 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
 
   Widget _driverRow(Map<String, dynamic> driver) {
     final effectiveStatus = driver['effectiveAccountStatus']?.toString();
-    final accountStatus = effectiveStatus ?? driver['accountStatus']?.toString();
+    final accountStatus =
+        effectiveStatus ?? driver['accountStatus']?.toString();
     final active = effectiveStatus != null
-      ? effectiveStatus == 'active'
-      : accountStatus == 'active' &&
-        (driver['isActive'] == true || driver['isActive'] == 1);
+        ? effectiveStatus == 'active'
+        : accountStatus == 'active' &&
+            (driver['isActive'] == true || driver['isActive'] == 1);
     final lastOnlineValue = driver['lastOnlineAt'];
     final lastOnlineAt = lastOnlineValue is DateTime
         ? lastOnlineValue.toLocal()
@@ -999,7 +1014,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
   }
 
   Widget _buildDriverProfile() {
-    if (_loadingDetails) {
+    if (_loadingDetails && _details == null) {
       return const Center(child: CircularProgressIndicator());
     }
     final details = _details;
@@ -1068,9 +1083,22 @@ class _DriverManagementScreenState extends State<DriverManagementScreen> {
                       ? Icons.block_outlined
                       : Icons.check_circle_outline),
                 ),
+                IconButton(
+                  tooltip: 'تحديث ملف السائق',
+                  onPressed: _loadingDetails
+                      ? null
+                      : () => unawaited(
+                            _openDriver(
+                              {'driverId': profile['driverId']},
+                              preserveProfileState: true,
+                            ),
+                          ),
+                  icon: const Icon(Icons.refresh),
+                ),
               ],
             ),
           ),
+          if (_error != null) _errorBanner(_error!),
           const TabBar(
             isScrollable: true,
             tabs: [

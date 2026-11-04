@@ -16,13 +16,11 @@ import '../widgets/support_history_tab.dart';
 String? _formatStaffDate(Object? value) {
   final text = value?.toString();
   if (text == null) return null;
-  final normalized = text.contains(' ')
-    ? text.replaceFirst(' ', 'T')
-    : text;
+  final normalized = text.contains(' ') ? text.replaceFirst(' ', 'T') : text;
   final date = DateTime.tryParse(normalized);
   return date == null
-    ? text
-    : intl.DateFormat('y/MM/dd  HH:mm').format(date.toLocal());
+      ? text
+      : intl.DateFormat('y/MM/dd  HH:mm').format(date.toLocal());
 }
 
 class StaffManagementScreen extends StatefulWidget {
@@ -540,7 +538,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minWidth: constraints.maxWidth - 32),
+                constraints:
+                    BoxConstraints(minWidth: constraints.maxWidth - 32),
                 child: Center(
                   child: SegmentedButton<String>(
                     segments: [
@@ -605,7 +604,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                   itemBuilder: (context, index) {
                     final staff = _visibleStaff[index];
                     final active =
-                      staff['isActive'] == true || staff['isActive'] == 1;
+                        staff['isActive'] == true || staff['isActive'] == 1;
                     final blocked = _isAccountBlocked(staff);
                     final isCurrent =
                         widget.currentAdminId == 'staff-${staff['id']}';
@@ -626,7 +625,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                             ? fullName!
                             : '${staff['username'] ?? ''}'),
                         subtitle: Text(
-                          '${staff['username'] ?? ''} · ${_roleName(staff)} · ${_statusName(staff)}'),
+                            '${staff['username'] ?? ''} · ${_roleName(staff)} · ${_statusName(staff)}'),
                         trailing: isCurrent
                             ? null
                             : PopupMenuButton<String>(
@@ -657,8 +656,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                                     ),
                                   PopupMenuItem(
                                     value: 'toggle_access',
-                                    child: Text(
-                                        blocked ? 'تفعيل الحساب' : 'إيقاف الحساب'),
+                                    child: Text(blocked
+                                        ? 'تفعيل الحساب'
+                                        : 'إيقاف الحساب'),
                                   ),
                                 ],
                               ),
@@ -699,7 +699,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           _staffInformation('اسم المستخدم', staff['username']),
           _staffInformation('الرتبة الوظيفية', _roleName(staff)),
           _staffInformation('حالة الحساب', _statusName(staff)),
-            _staffInformation(
+          _staffInformation(
               'تاريخ الإنشاء', _formatStaffDate(staff['createdAt'])),
         ],
       ),
@@ -833,9 +833,9 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                     ),
                   if (widget.currentAdminId != 'staff-${staff['id']}')
                     IconButton(
-                        tooltip: blocked ? 'تفعيل الحساب' : 'إيقاف الحساب',
-                        onPressed: () => unawaited(_toggleAccountAccess(staff)),
-                        icon: Icon(blocked
+                      tooltip: blocked ? 'تفعيل الحساب' : 'إيقاف الحساب',
+                      onPressed: () => unawaited(_toggleAccountAccess(staff)),
+                      icon: Icon(blocked
                           ? Icons.check_circle_outline
                           : Icons.block_outlined),
                     ),
@@ -845,6 +845,13 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
                       onPressed: () => unawaited(_openForm(staff: staff)),
                       icon: const Icon(Icons.edit_outlined),
                     ),
+                  IconButton(
+                    tooltip: 'تحديث ملف الموظف',
+                    onPressed: _loading
+                        ? null
+                        : () => unawaited(_refreshSelectedStaff()),
+                    icon: const Icon(Icons.refresh),
+                  ),
                 ],
               ),
             ),

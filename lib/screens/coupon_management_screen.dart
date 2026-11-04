@@ -347,6 +347,13 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
                                   .headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.w700)),
                         ),
+                        IconButton(
+                          tooltip: 'تحديث الكوبونات',
+                          onPressed: _loading
+                              ? null
+                              : () => unawaited(_loadCoupons(reset: true)),
+                          icon: const Icon(Icons.refresh),
+                        ),
                       ],
                     ),
                   ),

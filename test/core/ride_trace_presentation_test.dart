@@ -123,13 +123,13 @@ void main() {
     final points = RideTracePresentation.parsePoints([
       {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0, 'speedMps': 0.2},
       {
-        'latitude': 30.0001,
+        'latitude': 30.00005,
         'longitude': 31,
         'capturedAtMs': 60000,
-        'speedMps': 0.1,
+        'speedMps': 0.8,
       },
       {
-        'latitude': 30.00012,
+        'latitude': 30.0001,
         'longitude': 31,
         'capturedAtMs': 120000,
         'speedMps': 0.1,
@@ -158,10 +158,62 @@ void main() {
   test('does not report a stationary cluster shorter than two minutes', () {
     final points = RideTracePresentation.parsePoints([
       {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0},
-      {'latitude': 30.0001, 'longitude': 31, 'capturedAtMs': 60000},
+      {'latitude': 30.00005, 'longitude': 31, 'capturedAtMs': 60000},
     ]);
 
     expect(RideTracePresentation.waitingLocations(points), isEmpty);
+  });
+
+  test('uses the 10-meter fallback when speed is unavailable', () {
+    final points = RideTracePresentation.parsePoints([
+      {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0},
+      {'latitude': 30.00004, 'longitude': 31, 'capturedAtMs': 60000},
+      {'latitude': 30.00008, 'longitude': 31, 'capturedAtMs': 120000},
+    ]);
+
+    expect(RideTracePresentation.waitingStops(points), hasLength(1));
+  });
+
+  test('splits inferred stops for faster fixes or gaps over 10 meters', () {
+    final fastPoints = RideTracePresentation.parsePoints([
+      {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0, 'speedMps': 0.2},
+      {
+        'latitude': 30.00004,
+        'longitude': 31,
+        'capturedAtMs': 60000,
+        'speedMps': 0.8,
+      },
+      {
+        'latitude': 30.00008,
+        'longitude': 31,
+        'capturedAtMs': 120000,
+        'speedMps': 0.81,
+      },
+      {
+        'latitude': 30.00012,
+        'longitude': 31,
+        'capturedAtMs': 180000,
+        'speedMps': 0.2,
+      },
+      {
+        'latitude': 30.00016,
+        'longitude': 31,
+        'capturedAtMs': 240000,
+        'speedMps': 0.2,
+      },
+    ]);
+    final distantPoints = RideTracePresentation.parsePoints([
+      {'latitude': 30, 'longitude': 31, 'capturedAtMs': 0, 'speedMps': 0.2},
+      {
+        'latitude': 30.0001,
+        'longitude': 31,
+        'capturedAtMs': 120000,
+        'speedMps': 0.2,
+      },
+    ]);
+
+    expect(RideTracePresentation.waitingStops(fastPoints), isEmpty);
+    expect(RideTracePresentation.waitingStops(distantPoints), isEmpty);
   });
 
   test('sums only qualifying stops away from the route endpoints', () {
@@ -174,7 +226,7 @@ void main() {
         'speedMps': 0.2,
       },
       {
-        'latitude': 30.0051,
+        'latitude': 30.00505,
         'longitude': 31,
         'capturedAtMs': 180000,
         'speedMps': 0.2,
@@ -213,13 +265,13 @@ void main() {
         'speedMps': 0.2,
       },
       {
-        'latitude': 30.0051,
+        'latitude': 30.00505,
         'longitude': 31,
         'capturedAtMs': 120000,
         'speedMps': 0.2,
       },
       {
-        'latitude': 30.0052,
+        'latitude': 30.0051,
         'longitude': 31,
         'capturedAtMs': 180000,
         'speedMps': 0.2,
