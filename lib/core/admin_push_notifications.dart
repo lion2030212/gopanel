@@ -16,9 +16,9 @@ class AdminPushNotifications {
         _adminSession = adminSession;
 
   static const _channel = AndroidNotificationChannel(
-    'gofast_admin_alerts',
-    'تنبيهات الإدارة',
-    description: 'تنبيهات الأمان والكوبونات والشكاوى الجديدة',
+    'gofast_general_notifications',
+    'رسائل GoFast',
+    description: 'تنبيهات عامة من GoFast',
     importance: Importance.high,
   );
 
@@ -28,14 +28,13 @@ class AdminPushNotifications {
       FlutterLocalNotificationsPlugin();
   StreamSubscription<RemoteMessage>? _messageSubscription;
   StreamSubscription<String>? _tokenSubscription;
-  String? _registeredFid;
+  String? _registeredToken;
   bool _started = false;
 
   Future<void> start() async {
     if (_started ||
         kIsWeb ||
-        defaultTargetPlatform != TargetPlatform.android ||
-        _adminSession.role != 'manager') {
+        defaultTargetPlatform != TargetPlatform.android) {
       return;
     }
     _started = true;
@@ -65,10 +64,18 @@ class AdminPushNotifications {
       _messageSubscription = FirebaseMessaging.onMessage.listen((message) {
         unawaited(_showForegroundNotification(message));
       });
-      _tokenSubscription = messaging.onRegistered.listen((fid) {
-        unawaited(_registerFid(fid));
+      // FCM's send-to-device API expects registration tokens, not installation IDs.
+      // ignore: deprecated_member_use
+      _tokenSubscription = messaging.onTokenRefresh.listen((token) {
+        unawaited(_registerToken(token));
       });
-      await messaging.register();
+      // ignore: deprecated_member_use
+      final token = await messaging.getToken();
+      if (token == null || token.isEmpty) {
+        debugPrint('لم يصدر Firebase رمز تسجيل FCM لجهاز المدير');
+        return;
+      }
+      await _registerToken(token);
     } on FirebaseException catch (error) {
       _started = false;
       debugPrint('تعذر تهيئة إشعارات المدير: ${error.code} ${error.message}');
@@ -81,10 +88,10 @@ class AdminPushNotifications {
     }
   }
 
-  Future<void> _registerFid(String fid) async {
+  Future<void> _registerToken(String token) async {
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await _registerFidOnce(fid);
+        await _registerTokenOnce(token);
         return;
       } on DioException catch (error) {
         debugPrint(
@@ -99,15 +106,15 @@ class AdminPushNotifications {
     }
   }
 
-  Future<void> _registerFidOnce(String fid) async {
+  Future<void> _registerTokenOnce(String token) async {
     await _client.post<void>(
       '/api/admin/notifications/device-token',
-      data: {'fid': fid},
+      data: {'token': token},
       options: Options(
         headers: {'Authorization': 'Bearer ${_adminSession.token}'},
       ),
     );
-    _registeredFid = fid;
+    _registeredToken = token;
     debugPrint('تم تسجيل جهاز لوحة التحكم لاستقبال تنبيهات المدير');
   }
 
@@ -123,12 +130,12 @@ class AdminPushNotifications {
         body: body,
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
-            'gofast_admin_alerts',
-            'تنبيهات الإدارة',
-            channelDescription: 'تنبيهات الأمان والكوبونات والشكاوى الجديدة',
+            'gofast_general_notifications',
+            'رسائل GoFast',
+            channelDescription: 'تنبيهات عامة من GoFast',
             importance: Importance.high,
             priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
+            icon: 'ic_notification',
           ),
         ),
         payload: message.data['event']?.toString(),
@@ -142,12 +149,12 @@ class AdminPushNotifications {
     if (!_started) return;
     await _tokenSubscription?.cancel();
     _tokenSubscription = null;
-    final fid = _registeredFid;
-    if (fid != null) {
+    final token = _registeredToken;
+    if (token != null) {
       try {
         await _client.delete<void>(
           '/api/admin/notifications/device-token',
-          data: {'fid': fid},
+          data: {'token': token},
           options: Options(
             headers: {'Authorization': 'Bearer ${_adminSession.token}'},
           ),
@@ -155,14 +162,7 @@ class AdminPushNotifications {
       } on DioException catch (error) {
         debugPrint('تعذر حذف رمز إشعارات المدير: ${error.message}');
       }
-      _registeredFid = null;
-    }
-    try {
-      await FirebaseMessaging.instance.unregister();
-    } on FirebaseException catch (error) {
-      debugPrint('تعذر إلغاء تسجيل إشعارات المدير: ${error.code}');
-    } catch (error) {
-      debugPrint('تعذر إلغاء تسجيل إشعارات المدير: $error');
+      _registeredToken = null;
     }
   }
 

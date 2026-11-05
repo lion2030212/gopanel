@@ -16,7 +16,7 @@ The API server must be running and configured with its admin login credentials f
 
 On Android, the panel restores the last admin session until the user signs out or the server rejects the session. It stores the session token locally, never the password. On first launch, Android asks whether GoFast Panel may be exempted from battery optimization; the request is not repeated after that initial prompt.
 
-Android manager alerts use Firebase Cloud Messaging. The Android app must be registered in the same Firebase project with package name `com.panel1978.panel`; its `android/app/google-services.json` is consumed by the Google Services Gradle plugin. Only active manager sessions register a device token and receive security, coupon-security, and new support-ticket alerts. Apply the server migration `20261105_admin_fcm_device_tokens.sql` before deploying the API.
+Android manager alerts use Firebase Cloud Messaging. The Android app must be registered in the same Firebase project with package name `com.panel1978.panel`; its `android/app/google-services.json` is consumed by the Google Services Gradle plugin. Only active manager sessions register an FCM registration token and receive security, coupon-security, and new support-ticket alerts. Apply all server migrations, including `20261105_admin_fcm_device_tokens.sql` and `20261105_admin_fcm_registration_tokens.sql`, before deploying the API.
 
 ## Firebase Photo Storage
 
