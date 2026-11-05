@@ -355,6 +355,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                     ),
                   ),
                   TabBar(
+                    isScrollable: true,
                     tabs: [
                         const Tab(
                           icon: Icon(Icons.price_change_outlined),

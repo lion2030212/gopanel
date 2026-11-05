@@ -385,6 +385,10 @@ void main() {
 
   testWidgets('coupon permission adds a monitoring tab under admin controls',
       (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final requests = <RequestOptions>[];
     final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
     client.interceptors.add(InterceptorsWrapper(
@@ -431,6 +435,7 @@ void main() {
 
     expect(find.text('الإدارة والتحكم'), findsOneWidget);
     expect(find.text('مراقبة الكوبونات'), findsOneWidget);
+    await tester.ensureVisible(find.text('مراقبة الكوبونات'));
     await tester.tap(find.text('مراقبة الكوبونات'));
     await tester.pumpAndSettle();
 
