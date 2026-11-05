@@ -1,11 +1,11 @@
 {
-    "name": "GoFast Admin Panel",
-    "short_name": "GoFast Admin",
+    "name": "GoFast Panel",
+    "short_name": "GoFast Panel",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "GoFast fleet administration dashboard.",
+    "description": "GoFast Panel",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

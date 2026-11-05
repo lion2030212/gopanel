@@ -37,6 +37,42 @@ class AdminSession {
 
   bool can(String permission) => permissions.contains(permission);
 
+  Map<String, dynamic> toJson() => {
+        'token': token,
+        'id': id,
+        'username': username,
+        'fullName': fullName,
+        'profileImageUrl': profileImageUrl,
+        'role': role,
+        'permissions': permissions.toList(),
+      };
+
+  factory AdminSession.fromJson(Map<String, dynamic> json) {
+    final token = json['token']?.toString();
+    final id = json['id']?.toString();
+    final username = json['username']?.toString();
+    final role = json['role']?.toString();
+    final rawPermissions = json['permissions'];
+    if (token == null ||
+        token.isEmpty ||
+        id == null ||
+        username == null ||
+        role == null ||
+        rawPermissions is! List) {
+      throw const FormatException('بيانات الجلسة غير مكتملة');
+    }
+    return AdminSession(
+      token: token,
+      id: id,
+      username: username,
+      fullName: json['fullName']?.toString(),
+      profileImageUrl: json['profileImageUrl']?.toString(),
+      role: role,
+      permissions:
+          rawPermissions.map((permission) => permission.toString()).toSet(),
+    );
+  }
+
   factory AdminSession.fromLoginResponse(Map<String, dynamic> response) {
     final rawAdmin = response['admin'];
     if (rawAdmin is! Map) {

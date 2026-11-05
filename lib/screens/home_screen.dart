@@ -8,6 +8,7 @@ import 'package:socket_io_client/socket_io_client.dart' as socket_io_client;
 
 import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
+import '../core/admin_push_notifications.dart';
 import '../core/admin_session.dart';
 import '../core/driver_marker_presentation.dart';
 import '../core/map_search_presentation.dart';
@@ -44,6 +45,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final Dio _dio;
+  late final AdminPushNotifications _adminPushNotifications;
   final Map<int, _DriverLocation> _drivers = {};
   final Map<int, _RiderLocation> _riders = {};
   final Map<int, _ActiveRide> _activeRides = {};
@@ -83,6 +85,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _dio = createAdminApiClient(
       onSessionExpired: widget.onLogout,
     );
+    _adminPushNotifications = AdminPushNotifications(
+      client: _dio,
+      adminSession: widget.adminSession,
+    );
+    unawaited(_adminPushNotifications.start());
     if (widget.adminSession.id.startsWith('staff-')) {
       unawaited(_sendStaffHeartbeat());
       _staffPresenceTimer = Timer.periodic(
@@ -105,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _freshnessTimer?.cancel();
     _staffPresenceTimer?.cancel();
     _socket?.dispose();
+    _adminPushNotifications.dispose();
     _dio.close(force: true);
     _mapHoverListener?.dispose();
     _mapController?.dispose();
@@ -136,6 +144,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _logoutManually() async {
+    await _adminPushNotifications.unregisterDevice();
     try {
       await _dio.post<void>(
         '/api/admin/logout',

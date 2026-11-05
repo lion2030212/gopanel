@@ -14,6 +14,10 @@ The admin panel uses `http://localhost:3000` when opened on `localhost` or `127.
 
 The API server must be running and configured with its admin login credentials for local development. The map reads an admin-protected fleet snapshot and authenticated Socket.IO updates.
 
+On Android, the panel restores the last admin session until the user signs out or the server rejects the session. It stores the session token locally, never the password. On first launch, Android asks whether GoFast Panel may be exempted from battery optimization; the request is not repeated after that initial prompt.
+
+Android manager alerts use Firebase Cloud Messaging. The Android app must be registered in the same Firebase project with package name `com.panel1978.panel`; its `android/app/google-services.json` is consumed by the Google Services Gradle plugin. Only active manager sessions register a device token and receive security, coupon-security, and new support-ticket alerts. Apply the server migration `20261105_admin_fcm_device_tokens.sql` before deploying the API.
+
 ## Firebase Photo Storage
 
 The Web Firebase options for project `godrive-d7f94` are in `lib/firebase_options.dart`. Firebase Web API keys and app IDs are public client configuration, not credentials. Restrict the API key to the deployed web origins and the APIs this app uses; never place Firebase Admin service-account keys in this Flutter project.
