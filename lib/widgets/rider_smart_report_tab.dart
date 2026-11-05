@@ -22,7 +22,7 @@ class RiderSmartReportTab extends StatefulWidget {
 }
 
 class _RiderSmartReportTabState extends State<RiderSmartReportTab> {
-  String _period = 'month';
+  String _period = 'day';
   DateTimeRange? _customRange;
   Map<String, dynamic>? _report;
   String? _error;
@@ -251,14 +251,16 @@ class _RiderSmartReportTabState extends State<RiderSmartReportTab> {
                 emptySelectionAllowed: true,
                 segments: const [
                   ButtonSegment(
+                    value: 'day',
+                    label: Text('اليوم'),
+                  ),
+                  ButtonSegment(
                     value: 'week',
                     label: Text('الأسبوع'),
-                    icon: Icon(Icons.calendar_view_week_outlined),
                   ),
                   ButtonSegment(
                     value: 'month',
                     label: Text('الشهر'),
-                    icon: Icon(Icons.calendar_month_outlined),
                   ),
                 ],
                 selected: _period == 'custom' ? <String>{} : {_period},

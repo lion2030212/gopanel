@@ -24,6 +24,7 @@ class AdminSession {
     'support.tickets',
     'staff.manage',
     'finance.reports.read',
+    'security.manage',
   };
 
   final String token;

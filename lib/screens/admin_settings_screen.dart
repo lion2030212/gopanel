@@ -2,18 +2,24 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../core/admin_api_client.dart';
+import 'coupon_management_screen.dart';
+import '../widgets/admin_security_tab.dart';
 
 class AdminSettingsScreen extends StatefulWidget {
   const AdminSettingsScreen({
     required this.adminToken,
     required this.onSessionExpired,
     this.client,
+    this.canManageSecurity = false,
+    this.canManageCoupons = false,
     super.key,
   });
 
   final String adminToken;
   final ValueChanged<String> onSessionExpired;
   final Dio? client;
+  final bool canManageSecurity;
+  final bool canManageCoupons;
 
   @override
   State<AdminSettingsScreen> createState() => _AdminSettingsScreenState();
@@ -318,7 +324,9 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 920),
             child: DefaultTabController(
-              length: 4,
+              length: 4 +
+                  (widget.canManageSecurity ? 1 : 0) +
+                  (widget.canManageCoupons ? 1 : 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -346,18 +354,28 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       ],
                     ),
                   ),
-                  const TabBar(
+                  TabBar(
                     tabs: [
-                      Tab(
+                        const Tab(
                           icon: Icon(Icons.price_change_outlined),
                           text: 'الأسعار'),
-                      Tab(icon: Icon(Icons.manage_search), text: 'البحث'),
-                      Tab(
+                        const Tab(icon: Icon(Icons.manage_search), text: 'البحث'),
+                        const Tab(
                           icon: Icon(Icons.account_balance_wallet_outlined),
                           text: 'المحفظة'),
-                      Tab(
+                        const Tab(
                           icon: Icon(Icons.system_update_alt),
                           text: 'الإصدارات'),
+                      if (widget.canManageSecurity)
+                        const Tab(
+                          icon: Icon(Icons.security_outlined),
+                          text: 'المراقبة والأمان',
+                        ),
+                      if (widget.canManageCoupons)
+                        const Tab(
+                          icon: Icon(Icons.discount_outlined),
+                          text: 'مراقبة الكوبونات',
+                        ),
                     ],
                   ),
                   if (_isLoading) const LinearProgressIndicator(minHeight: 2),
@@ -392,6 +410,19 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                               _buildSearchTab(context),
                               _buildWalletTab(context),
                               _buildVersionsTab(context),
+                              if (widget.canManageSecurity)
+                                AdminSecurityTab(
+                                  adminToken: widget.adminToken,
+                                  onSessionExpired: widget.onSessionExpired,
+                                  client: _dio,
+                                ),
+                              if (widget.canManageCoupons)
+                                CouponManagementScreen(
+                                  adminToken: widget.adminToken,
+                                  onSessionExpired: widget.onSessionExpired,
+                                  client: _dio,
+                                  monitoringOnly: true,
+                                ),
                             ],
                           ),
                   ),

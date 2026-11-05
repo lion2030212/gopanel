@@ -10,12 +10,14 @@ class CouponManagementScreen extends StatefulWidget {
   const CouponManagementScreen({
     required this.adminToken,
     required this.onSessionExpired,
+    this.monitoringOnly = false,
     this.client,
     super.key,
   });
 
   final String adminToken;
   final ValueChanged<String> onSessionExpired;
+  final bool monitoringOnly;
   final Dio? client;
 
   @override
@@ -41,6 +43,7 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
   late final Dio _dio;
   final TextEditingController _searchController = TextEditingController();
   Timer? _searchTimer;
+  Timer? _monitoringRefreshTimer;
   String _period = 'all';
   String _status = 'all';
   DateTimeRange? _customRange;
@@ -51,20 +54,41 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
   bool _hasMore = false;
   int _page = 1;
   int _requestId = 0;
+  String _activeTab = 'manage';
+  String _monitoringPeriod = 'week';
+  DateTimeRange? _monitoringCustomRange;
+  Map<String, dynamic> _monitoringAnalytics = const {};
+  List<Map<String, dynamic>> _securityEvents = const [];
+  int _securityEventTotal = 0;
+  int _securityEventPage = 1;
+  bool _monitoringLoading = false;
+  bool _securityEventsLoadingMore = false;
+  String? _monitoringError;
 
   @override
   void initState() {
     super.initState();
+    _activeTab = widget.monitoringOnly ? 'monitor' : 'manage';
     _dio = widget.client ??
         createAdminApiClient(
           onSessionExpired: widget.onSessionExpired,
         );
-    unawaited(_loadCoupons(reset: true));
+    _monitoringRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_activeTab == 'monitor' && !_monitoringLoading) {
+        unawaited(_loadMonitoring());
+      }
+    });
+    if (widget.monitoringOnly) {
+      unawaited(_loadMonitoring());
+    } else {
+      unawaited(_loadCoupons(reset: true));
+    }
   }
 
   @override
   void dispose() {
     _searchTimer?.cancel();
+    _monitoringRefreshTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -190,6 +214,130 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
       if (mounted && requestId == _requestId) {
         setState(() => _loading = false);
       }
+    }
+  }
+
+  Future<void> _selectMonitoringPeriod(String period) async {
+    if (period == 'custom') {
+      final today = DateTime.now();
+      final selected = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2100),
+        initialDateRange: _monitoringCustomRange ??
+            DateTimeRange(start: today, end: today),
+        helpText: 'اختر فترة التحليل',
+        cancelText: 'إلغاء',
+        confirmText: 'تطبيق',
+        saveText: 'تطبيق',
+      );
+      if (!mounted || selected == null) return;
+      setState(() {
+        _monitoringCustomRange = selected;
+        _monitoringPeriod = period;
+      });
+    } else {
+      setState(() => _monitoringPeriod = period);
+    }
+    await _loadMonitoring();
+  }
+
+  Future<void> _loadMonitoring() async {
+    setState(() {
+      _monitoringLoading = true;
+      _monitoringError = null;
+    });
+    try {
+      final query = <String, dynamic>{
+        'period': _monitoringPeriod,
+        'page': 1,
+        'limit': 30,
+      };
+      final range = _monitoringCustomRange;
+      if (_monitoringPeriod == 'custom' && range != null) {
+        query['startAt'] = intl.DateFormat('yyyy-MM-dd').format(range.start);
+        query['endAt'] = intl.DateFormat('yyyy-MM-dd').format(range.end);
+      }
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/admin/coupons/monitoring',
+        queryParameters: query,
+        options: _requestOptions,
+      );
+      if (!mounted) return;
+      final data = response.data ?? const <String, dynamic>{};
+      final rawAnalytics = data['analytics'];
+      final rawEvents = data['events'];
+      setState(() {
+        _monitoringAnalytics = rawAnalytics is Map
+            ? Map<String, dynamic>.from(rawAnalytics)
+            : const {};
+        _securityEvents = rawEvents is List
+            ? rawEvents
+                .whereType<Map>()
+                .map((event) => Map<String, dynamic>.from(event))
+                .toList()
+            : const [];
+        _securityEventTotal = _asInt(data['total']);
+        _securityEventPage = 1;
+      });
+    } on DioException catch (error) {
+      if (!mounted) return;
+      if (error.response?.statusCode == 401) {
+        widget.onSessionExpired(_messageFrom(error, 'جلسة الإدارة غير صالحة'));
+      } else {
+        setState(() => _monitoringError =
+            _messageFrom(error, 'تعذر تحميل مراقبة الكوبونات'));
+      }
+    } finally {
+      if (mounted) setState(() => _monitoringLoading = false);
+    }
+  }
+
+  Future<void> _loadMoreSecurityEvents() async {
+    if (_securityEventsLoadingMore || _securityEvents.length >= _securityEventTotal) {
+      return;
+    }
+    setState(() => _securityEventsLoadingMore = true);
+    try {
+      final page = _securityEventPage + 1;
+      final query = <String, dynamic>{
+        'period': _monitoringPeriod,
+        'page': page,
+        'limit': 30,
+      };
+      final range = _monitoringCustomRange;
+      if (_monitoringPeriod == 'custom' && range != null) {
+        query['startAt'] = intl.DateFormat('yyyy-MM-dd').format(range.start);
+        query['endAt'] = intl.DateFormat('yyyy-MM-dd').format(range.end);
+      }
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/admin/coupons/monitoring',
+        queryParameters: query,
+        options: _requestOptions,
+      );
+      if (!mounted) return;
+      final rows = response.data?['events'];
+      final events = rows is List
+          ? rows
+              .whereType<Map>()
+              .map((event) => Map<String, dynamic>.from(event))
+              .toList()
+          : <Map<String, dynamic>>[];
+      setState(() {
+        _securityEvents = [..._securityEvents, ...events];
+        _securityEventTotal = _asInt(response.data?['total']);
+        _securityEventPage = page;
+      });
+    } on DioException catch (error) {
+      if (!mounted) return;
+      if (error.response?.statusCode == 401) {
+        widget.onSessionExpired(_messageFrom(error, 'جلسة الإدارة غير صالحة'));
+      } else {
+        setState(() => _monitoringError =
+            _messageFrom(error, 'تعذر تحميل محاولات إضافية'));
+      }
+    } finally {
+      if (mounted) setState(() => _securityEventsLoadingMore = false);
     }
   }
 
@@ -329,7 +477,7 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
       textDirection: TextDirection.rtl,
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.only(top: 64),
+          padding: EdgeInsets.only(top: widget.monitoringOnly ? 0 : 64),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1280),
@@ -341,23 +489,33 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text('إدارة الكوبونات',
+                            child: Text(
+                              _activeTab == 'manage'
+                                ? 'إدارة الكوبونات'
+                                : 'مراقبة وأمان الكوبونات',
                               style: Theme.of(context)
                                   .textTheme
                                   .headlineSmall
                                   ?.copyWith(fontWeight: FontWeight.w700)),
                         ),
                         IconButton(
-                          tooltip: 'تحديث الكوبونات',
-                          onPressed: _loading
-                              ? null
-                              : () => unawaited(_loadCoupons(reset: true)),
+                          tooltip: _activeTab == 'manage'
+                              ? 'تحديث الكوبونات'
+                              : 'تحديث المراقبة',
+                          onPressed: _activeTab == 'manage'
+                              ? (_loading
+                                  ? null
+                                  : () => unawaited(_loadCoupons(reset: true)))
+                              : (_monitoringLoading
+                                  ? null
+                                  : () => unawaited(_loadMonitoring())),
                           icon: const Icon(Icons.refresh),
                         ),
                       ],
                     ),
                   ),
-                  Padding(
+                  if (_activeTab == 'manage')
+                    Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Wrap(
                       spacing: 10,
@@ -435,7 +593,8 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
                       ],
                     ),
                   ),
-                  if (_error != null)
+                  if (_activeTab == 'monitor') _monitoringControls(),
+                  if (_activeTab == 'manage' && _error != null)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                       child: Material(
@@ -447,40 +606,13 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
                         ),
                       ),
                     ),
-                  if (_loading) const LinearProgressIndicator(minHeight: 2),
+                  if ((_activeTab == 'manage' && _loading) ||
+                      (_activeTab == 'monitor' && _monitoringLoading))
+                    const LinearProgressIndicator(minHeight: 2),
                   Expanded(
-                    child: _coupons.isEmpty && _loading
-                        ? const Center(child: CircularProgressIndicator())
-                        : _coupons.isEmpty
-                            ? Center(
-                                child: Text(_error ?? 'لا توجد كوبونات مطابقة'),
-                              )
-                            : RefreshIndicator(
-                                onRefresh: () => _loadCoupons(reset: true),
-                                child: ListView.separated(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                                  itemCount:
-                                      _coupons.length + (_hasMore ? 1 : 0),
-                                  separatorBuilder: (_, __) =>
-                                      const SizedBox(height: 8),
-                                  itemBuilder: (context, index) {
-                                    if (index == _coupons.length) {
-                                      return Center(
-                                        child: TextButton.icon(
-                                          onPressed: _loading
-                                              ? null
-                                              : () =>
-                                                  _loadCoupons(reset: false),
-                                          icon: const Icon(Icons.expand_more),
-                                          label: const Text('تحميل المزيد'),
-                                        ),
-                                      );
-                                    }
-                                    return _couponTile(_coupons[index]);
-                                  },
-                                ),
-                              ),
+                    child: _activeTab == 'manage'
+                        ? _couponList()
+                        : _monitoringView(),
                   ),
                 ],
               ),
@@ -490,6 +622,353 @@ class _CouponManagementScreenState extends State<CouponManagementScreen> {
       ),
     );
   }
+
+  Widget _couponList() {
+    if (_coupons.isEmpty && _loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_coupons.isEmpty) {
+      return Center(child: Text(_error ?? 'لا توجد كوبونات مطابقة'));
+    }
+    return RefreshIndicator(
+      onRefresh: () => _loadCoupons(reset: true),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+        itemCount: _coupons.length + (_hasMore ? 1 : 0),
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          if (index == _coupons.length) {
+            return Center(
+              child: TextButton.icon(
+                onPressed: _loading ? null : () => _loadCoupons(reset: false),
+                icon: const Icon(Icons.expand_more),
+                label: const Text('تحميل المزيد'),
+              ),
+            );
+          }
+          return _couponTile(_coupons[index]);
+        },
+      ),
+    );
+  }
+
+  Widget _monitoringControls() => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Container(
+                  key: const ValueKey('couponMonitoringPeriod'),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.outlineVariant),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(7),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _monitoringPeriodButton('day', 'يوم'),
+                        _periodDivider(),
+                        _monitoringPeriodButton('week', 'أسبوع'),
+                        _periodDivider(),
+                        _monitoringPeriodButton('month', 'شهر'),
+                        _periodDivider(),
+                        _monitoringPeriodButton('custom', 'مخصص'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (_monitoringPeriod == 'custom' &&
+                _monitoringCustomRange != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '${_formatDate(_monitoringCustomRange!.start)} - ${_formatDate(_monitoringCustomRange!.end)}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+          ],
+        ),
+      );
+
+  Widget _monitoringPeriodButton(String period, String label) {
+    final selected = _monitoringPeriod == period;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: TextButton(
+        key: ValueKey('couponMonitoringPeriod-$period'),
+        onPressed: () => unawaited(_selectMonitoringPeriod(period)),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(76, 42),
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          foregroundColor: selected
+              ? colorScheme.onSecondaryContainer
+              : colorScheme.onSurface,
+          backgroundColor:
+              selected ? colorScheme.secondaryContainer : colorScheme.surface,
+          shape: const RoundedRectangleBorder(),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(fontWeight: selected ? FontWeight.w700 : null),
+        ),
+      ),
+    );
+  }
+
+  Widget _periodDivider() => Container(
+        width: 1,
+        height: 24,
+        color: Theme.of(context).colorScheme.outlineVariant,
+      );
+
+  Widget _monitoringView() {
+    if (_monitoringAnalytics.isEmpty && _monitoringLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_monitoringError != null && _monitoringAnalytics.isEmpty) {
+      return Center(child: Text(_monitoringError!));
+    }
+    final analytics = _monitoringAnalytics;
+    final current = analytics['current'] is Map
+        ? Map<String, dynamic>.from(analytics['current'] as Map)
+        : const <String, dynamic>{};
+    final previous = analytics['previous'] is Map
+        ? Map<String, dynamic>.from(analytics['previous'] as Map)
+        : const <String, dynamic>{};
+    final colorScheme = Theme.of(context).colorScheme;
+    return RefreshIndicator(
+      onRefresh: _loadMonitoring,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+        children: [
+          if (_monitoringError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(_monitoringError!,
+                  style: TextStyle(color: colorScheme.error)),
+            ),
+          if (_securityEventTotal > 0)
+            Material(
+              color: colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded,
+                        color: colorScheme.onErrorContainer),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'تنبيه أمني: $_securityEventTotal محاولة متكررة خلال آخر 30 يومًا',
+                        style: TextStyle(color: colorScheme.onErrorContainer),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _metricCard(
+                'الكوبونات النشطة الآن',
+                '${_asInt(analytics['activeCoupons'])}',
+                Icons.local_offer_outlined,
+              ),
+              _metricCard(
+                'إجمالي الاستخدامات الصافية',
+                '${_asInt(analytics['totalCouponUses'])}',
+                Icons.confirmation_number_outlined,
+              ),
+              _metricCard(
+                'إجمالي ما تحملته المنصة',
+                '${_money(analytics['totalDiscountSpend'])} ج.م',
+                Icons.payments_outlined,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text('مقارنة الفترة المحددة بالفترة السابقة',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _comparisonCard('الرحلات المكتملة', 'completedRides', current,
+                  previous, money: false),
+              _comparisonCard('استخدامات الكوبونات', 'couponUses', current,
+                  previous, money: false),
+                _comparisonCard('حصة الرحلات المدعومة بالكوبون',
+                  'couponRideSharePercent', current, previous,
+                  money: false, percent: true),
+              _comparisonCard('قيمة الخصومات', 'discountSpend', current,
+                  previous, money: true),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'المقارنة وصفية بين الفترتين ولا تثبت أن الخصم تسبب في زيادة الرحلات.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 22),
+          Text('محاولات الاستخدام المخالفة',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          if (_securityEvents.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Text('لا توجد محاولات متكررة مسجلة خلال آخر 30 يومًا'),
+            )
+          else
+            ..._securityEvents.map(_securityEventTile),
+          if (_securityEvents.length < _securityEventTotal)
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: _securityEventsLoadingMore
+                    ? null
+                    : _loadMoreSecurityEvents,
+                icon: _securityEventsLoadingMore
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more),
+                label: const Text('تحميل محاولات إضافية'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricCard(String title, String value, IconData icon) => SizedBox(
+        width: 280,
+        child: Card(
+          margin: EdgeInsets.zero,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Icon(icon),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title),
+                      const SizedBox(height: 4),
+                      Text(value,
+                          style: Theme.of(context).textTheme.titleLarge),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  Widget _comparisonCard(
+    String title,
+    String key,
+    Map<String, dynamic> current,
+    Map<String, dynamic> previous, {
+    required bool money,
+    bool percent = false,
+  }) {
+    final currentValue = _asDouble(current[key]);
+    final previousValue = _asDouble(previous[key]);
+    final difference = currentValue - previousValue;
+    final change = previousValue == 0
+        ? (currentValue == 0 ? '0%' : 'جديد')
+        : '${difference >= 0 ? '+' : ''}${(difference / previousValue * 100).toStringAsFixed(1)}%';
+    return SizedBox(
+      width: 280,
+      child: Card(
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title),
+              const SizedBox(height: 6),
+              Text(
+                '${_comparisonValue(currentValue, money: money, percent: percent)} مقابل ${_comparisonValue(previousValue, money: money, percent: percent)}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text('التغير: $change'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _securityEventTile(Map<String, dynamic> event) {
+    final attemptedAt = _dateValue(event['lastAttemptAt']);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.phone_android),
+        title: Text('${event['riderPhone'] ?? 'هاتف غير متاح'}'),
+        subtitle: Text(
+          'الكوبون ${event['couponCode']} · ${_asInt(event['attemptCount'])} محاولات · ${_formatMonitoringDate(attemptedAt)}',
+        ),
+        trailing: const Icon(Icons.warning_amber_rounded),
+      ),
+    );
+  }
+
+  String _count(double value) => value.toInt().toString();
+
+    String _comparisonValue(double value,
+        {required bool money, required bool percent}) =>
+      money
+        ? '${_money(value)} ج.م'
+        : percent
+          ? '${value.toStringAsFixed(1)}%'
+          : _count(value);
+
+  String _money(dynamic value) => _asDouble(value).toStringAsFixed(2);
+
+  String _formatMonitoringDate(DateTime? date) => date == null
+      ? 'غير محدد'
+      : intl.DateFormat('yyyy/MM/dd HH:mm').format(date.toLocal());
 
   Widget _couponTile(Map<String, dynamic> coupon) {
     final isActive = _asBool(coupon['isActive']);
@@ -1054,6 +1533,9 @@ bool _asBool(dynamic value) => value == true || value == 1 || value == '1';
 
 int _asInt(dynamic value) =>
     value is num ? value.toInt() : int.tryParse('$value') ?? 0;
+
+double _asDouble(dynamic value) =>
+  value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
 DateTime? _dateValue(dynamic value) {
   if (value is DateTime) return value;

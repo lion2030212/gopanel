@@ -104,7 +104,7 @@ void main() {
 
     expect(requests, hasLength(1));
     expect(requests.first.path, '/api/admin/drivers/4/smart-report');
-    expect(requests.first.queryParameters['period'], 'month');
+    expect(requests.first.queryParameters['period'], 'day');
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
     expect(find.text('الملخص التنفيذي'), findsOneWidget);
     expect(find.text('بيانات غير كافية للحكم'), findsOneWidget);
@@ -118,6 +118,11 @@ void main() {
     expect(find.text('تشمل الوقت أثناء الرحلة، ولا تعني الجاهزية لطلب جديد'),
         findsOneWidget);
 
+    await tester.tap(find.text('اليوم'));
+    await tester.pumpAndSettle();
+    expect(requests, hasLength(3));
+    expect(requests.last.queryParameters['period'], 'day');
+
     await tester.tap(find.byTooltip('مدة محددة'));
     await tester.pumpAndSettle();
     expect(find.text('اختر مدة التقرير'), findsOneWidget);
@@ -129,7 +134,7 @@ void main() {
         '${date.year.toString().padLeft(4, '0')}-'
         '${date.month.toString().padLeft(2, '0')}-'
         '${date.day.toString().padLeft(2, '0')}';
-    expect(requests, hasLength(3));
+    expect(requests, hasLength(4));
     expect(requests.last.queryParameters['period'], 'custom');
     expect(requests.last.queryParameters['startAt'], dateParameter(today));
     expect(requests.last.queryParameters['endAt'], dateParameter(today));
@@ -138,6 +143,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tapAt(const Offset(5, 5));
     await tester.pumpAndSettle();
-    expect(requests, hasLength(3));
+    expect(requests, hasLength(4));
   });
 }

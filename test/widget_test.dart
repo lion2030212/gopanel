@@ -333,6 +333,111 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('coupon monitoring shows period metrics and repeat-use alerts',
+      (tester) async {
+    final requests = <RequestOptions>[];
+    final client = Dio(BaseOptions(baseUrl: 'http://localhost:3000'));
+    client.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) {
+        requests.add(options);
+        if (options.path == '/api/admin/coupons/monitoring') {
+          handler.resolve(Response(requestOptions: options, data: {
+            'analytics': {
+              'activeCoupons': 3,
+              'totalCouponUses': 21,
+              'totalDiscountSpend': 300.5,
+              'current': {
+                'completedRides': 8,
+                'couponUses': 4,
+                'couponRideSharePercent': 50.0,
+                'discountSpend': 60.0,
+              },
+              'previous': {
+                'completedRides': 6,
+                'couponUses': 2,
+                'couponRideSharePercent': 33.3,
+                'discountSpend': 30.0,
+              },
+            },
+            'events': [
+              {
+                'eventId': 7,
+                'riderPhone': '+201000000000',
+                'couponCode': 'SAVE15',
+                'attemptCount': 3,
+                'lastAttemptAt': '2026-11-05T12:00:00.000Z',
+              },
+            ],
+            'total': 1,
+          }));
+          return;
+        }
+        handler.resolve(Response(requestOptions: options, data: {
+          'coupons': [],
+          'total': 0,
+          'counts': {'all': 0},
+        }));
+      },
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Directionality(
+          textDirection: TextDirection.rtl,
+          child: DashboardNavigation(
+            homeBuilder: (_) => CouponManagementScreen(
+              adminToken: 'admin-token',
+              onSessionExpired: fail,
+              client: client,
+              monitoringOnly: true,
+            ),
+            routes: const {},
+            onRouteChanged: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('مراقبة وأمان الكوبونات'), findsOneWidget);
+    expect(find.text('الكوبونات النشطة الآن'), findsOneWidget);
+    expect(find.text('إجمالي الاستخدامات الصافية'), findsOneWidget);
+    expect(find.text('300.50 ج.م'), findsOneWidget);
+    await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('4 مقابل 2'), findsOneWidget);
+    expect(find.textContaining('50.0% مقابل 33.3%'), findsOneWidget);
+    expect(find.textContaining('+201000000000'), findsOneWidget);
+    expect(find.textContaining('SAVE15'), findsOneWidget);
+    expect(requests.last.headers['Authorization'], 'Bearer admin-token');
+    expect(requests.last.queryParameters['period'], 'week');
+
+    await tester.tap(find.text('شهر'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['period'], 'month');
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('couponMonitoringPeriod')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey('couponMonitoringPeriod-custom')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DateRangePickerDialog), findsOneWidget);
+    expect(find.text('Save'), findsNothing);
+    expect(find.text('SAVE'), findsNothing);
+    await tester.tap(find.text('تطبيق'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['period'], 'custom');
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('couponMonitoringPeriod')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('couponMonitoringPeriod-custom')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DateRangePickerDialog), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
       'rider coupon tab filters records and limits coupon actions to owner',
       (tester) async {

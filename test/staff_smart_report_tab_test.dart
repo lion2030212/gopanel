@@ -104,13 +104,13 @@ void main() {
 
     expect(requests, hasLength(1));
     expect(requests.first.path, '/api/admin/staff/7/smart-report');
-    expect(requests.first.queryParameters['period'], 'month');
+    expect(requests.first.queryParameters['period'], 'day');
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
     expect(find.text('الملخص التنفيذي والتوصية'), findsOneWidget);
     expect(find.text('ملخص اتجاهات الفترة'), findsOneWidget);
 
     await tester.scrollUntilVisible(
-      find.text('وقت تسجيل الدخول والمقارنة'),
+      find.text('مدة التواجد التقديرية والمقارنة'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
@@ -141,6 +141,10 @@ void main() {
     await tester.tap(find.text('الأسبوع'));
     await tester.pumpAndSettle();
     expect(requests.last.queryParameters['period'], 'week');
+
+    await tester.tap(find.text('اليوم'));
+    await tester.pumpAndSettle();
+    expect(requests.last.queryParameters['period'], 'day');
 
     await tester.tap(find.byTooltip('مدة محددة'));
     await tester.pumpAndSettle();

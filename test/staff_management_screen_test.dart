@@ -385,7 +385,7 @@ void main() {
     final reportRequest = requests.singleWhere(
       (request) => request.path == '/api/admin/staff/2/smart-report',
     );
-    expect(reportRequest.queryParameters['period'], 'month');
+    expect(reportRequest.queryParameters['period'], 'day');
     await tester.scrollUntilVisible(
       find.text('محادثات مغلقة'),
       300,

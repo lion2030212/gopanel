@@ -300,6 +300,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         unawaited(_refreshSupportUnreadTicketCount());
       });
     }
+    if (widget.adminSession.can('security.manage')) {
+      socket.on('security:alert', (payload) {
+        if (!mounted || payload is! Map) return;
+        final severity = payload['severity']?.toString() ?? 'yellow';
+        final count = payload['failureCount']?.toString() ?? '';
+        final ipAddress = payload['ipAddress']?.toString() ?? '';
+        final isRed = severity == 'red';
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(
+            backgroundColor: isRed ? Colors.red.shade800 : Colors.amber.shade900,
+            content: Text(
+              'تنبيه أمني: $count محاولات دخول من $ipAddress',
+            ),
+          ));
+      });
+    }
     socket.onConnect((_) {
       _loadDrivers();
       unawaited(_refreshSupportUnreadCount());
@@ -1216,6 +1233,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         AdminSettingsScreen(
                           adminToken: widget.adminSession.token,
                           onSessionExpired: widget.onLogout,
+                          canManageSecurity:
+                              widget.adminSession.can('security.manage'),
+                            canManageCoupons:
+                              widget.adminSession.can('coupons.manage'),
                         ),
                   if (widget.adminSession.can('support.conversations'))
                     DashboardNavigation.supportConversationsRoute: (_) =>

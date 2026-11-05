@@ -86,14 +86,18 @@ void main() {
 
     expect(requests, hasLength(1));
     expect(requests.first.path, '/api/admin/riders/12/smart-report');
-    expect(requests.first.queryParameters['period'], 'month');
+    expect(requests.first.queryParameters['period'], 'day');
     expect(requests.first.headers['Authorization'], 'Bearer admin-token');
-    expect(find.text('النقاط الإيجابية'), findsOneWidget);
 
     await tester.tap(find.text('الأسبوع'));
     await tester.pumpAndSettle();
     expect(requests, hasLength(2));
     expect(requests.last.queryParameters['period'], 'week');
+
+    await tester.tap(find.text('اليوم'));
+    await tester.pumpAndSettle();
+    expect(requests, hasLength(3));
+    expect(requests.last.queryParameters['period'], 'day');
 
     await tester.tap(find.byTooltip('مدة محددة'));
     await tester.pumpAndSettle();
@@ -106,14 +110,16 @@ void main() {
         '${date.year.toString().padLeft(4, '0')}-'
         '${date.month.toString().padLeft(2, '0')}-'
         '${date.day.toString().padLeft(2, '0')}';
-    expect(requests, hasLength(3));
+      expect(requests, hasLength(4));
     expect(requests.last.queryParameters['period'], 'custom');
     expect(requests.last.queryParameters['startAt'], dateParameter(today));
     expect(requests.last.queryParameters['endAt'], dateParameter(today));
 
+    expect(find.text('يحتاج متابعة مالية'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('النقاط الإيجابية'), 300);
+    expect(find.text('النقاط الإيجابية'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('مؤشرات تحتاج انتباه'), 400);
     expect(find.text('مؤشرات تحتاج انتباه'), findsOneWidget);
-    expect(find.text('يحتاج متابعة مالية'), findsOneWidget);
     expect(find.text('16.00'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('لا تتوفر نسبة موثوقة للإلغاء إلى الراكب أو الكابتن'),

@@ -22,7 +22,7 @@ class StaffSmartReportTab extends StatefulWidget {
 }
 
 class _StaffSmartReportTabState extends State<StaffSmartReportTab> {
-  String _period = 'month';
+  String _period = 'day';
   DateTimeRange? _customRange;
   Map<String, dynamic>? _report;
   String? _error;
@@ -255,14 +255,16 @@ class _StaffSmartReportTabState extends State<StaffSmartReportTab> {
                 emptySelectionAllowed: true,
                 segments: const [
                   ButtonSegment(
+                    value: 'day',
+                    label: Text('اليوم'),
+                  ),
+                  ButtonSegment(
                     value: 'week',
                     label: Text('الأسبوع'),
-                    icon: Icon(Icons.calendar_view_week_outlined),
                   ),
                   ButtonSegment(
                     value: 'month',
                     label: Text('الشهر'),
-                    icon: Icon(Icons.calendar_month_outlined),
                   ),
                 ],
                 selected: _period == 'custom' ? <String>{} : {_period},
@@ -331,15 +333,15 @@ class _StaffSmartReportTabState extends State<StaffSmartReportTab> {
             ),
           ),
         ),
-        _section('وقت تسجيل الدخول والمقارنة', [
+        _section('مدة التواجد التقديرية والمقارنة', [
           _metric(
-            'مدة تسجيل الدخول',
+            'مدة التواجد التقديرية',
             _duration(currentSessions['durationSeconds']),
             'الفترة السابقة ${_duration(previousSessions['durationSeconds'])}',
-            Icons.login_outlined,
+            Icons.schedule_outlined,
           ),
           _metric(
-            'فرق مدة تسجيل الدخول',
+            'فرق مدة التواجد التقديرية',
             _durationDelta(comparison['sessionDurationSecondsDelta']),
             'مقارنة بالفترة السابقة المناظرة',
             Icons.compare_arrows,
