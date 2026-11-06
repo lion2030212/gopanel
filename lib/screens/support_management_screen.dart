@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io_client;
 
+import '../core/admin_chat_audio.dart';
 import '../core/admin_api_client.dart';
 import '../core/admin_config.dart';
 
@@ -174,6 +175,10 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
     });
     socket.on('support:conversation:message', (payload) {
       if (!widget.ticketsMode) {
+        final message = payload is Map ? payload['message'] : null;
+        if (message is Map && message['senderType'] == 'customer') {
+          unawaited(AdminChatAudio.playReceived(messageId: message['id']));
+        }
         _scheduleSocketRefresh(payload, refreshDetail: true);
       }
     });
@@ -332,6 +337,7 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
         data: {'message': body},
         options: _auth,
       );
+      if (!widget.ticketsMode) unawaited(AdminChatAudio.playSent());
       if (message == null) _replyController.clear();
       await _loadDetail(id, followLatest: true);
       await _loadItems();

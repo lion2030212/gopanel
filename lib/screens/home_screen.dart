@@ -7,6 +7,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:socket_io_client/socket_io_client.dart' as socket_io_client;
 
 import '../core/admin_api_client.dart';
+import '../core/admin_chat_audio.dart';
+import '../core/admin_chat_foreground_service.dart';
 import '../core/admin_config.dart';
 import '../core/admin_push_notifications.dart';
 import '../core/admin_session.dart';
@@ -82,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(AdminChatForegroundService.setAppInForeground(true));
     _dio = createAdminApiClient(
       onSessionExpired: widget.onLogout,
     );
@@ -123,6 +126,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    unawaited(
+      AdminChatForegroundService.setAppInForeground(
+        state == AppLifecycleState.resumed,
+      ),
+    );
     if (state == AppLifecycleState.resumed) {
       unawaited(_sendStaffHeartbeat());
     }
@@ -301,7 +309,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     socket.on('support:conversations:changed', (_) {
       unawaited(_refreshSupportUnreadCount());
     });
-    socket.on('support:conversation:message', (_) {
+    socket.on('support:conversation:message', (payload) {
+      final message = payload is Map ? payload['message'] : null;
+      if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+          message is Map &&
+          message['senderType'] == 'customer') {
+        unawaited(AdminChatAudio.playReceived(messageId: message['id']));
+      }
       unawaited(_refreshSupportUnreadCount());
     });
     if (widget.adminSession.can('support.tickets')) {
@@ -319,7 +333,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(
-            backgroundColor: isRed ? Colors.red.shade800 : Colors.amber.shade900,
+            backgroundColor:
+                isRed ? Colors.red.shade800 : Colors.amber.shade900,
             content: Text(
               'تنبيه أمني: $count محاولات دخول من $ipAddress',
             ),
@@ -452,12 +467,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             driverId: driverId,
             status: payload['status']?.toString() ?? '',
             isDelivery: payload['isDelivery'] == true ||
-              payload['isDelivery'] == 1 ||
-              previousRide?.isDelivery == true,
+                payload['isDelivery'] == 1 ||
+                previousRide?.isDelivery == true,
             deliveryPaymentCollected:
-              payload['deliveryPaymentCollected'] == true ||
-                payload['deliveryPaymentCollected'] == 1 ||
-                previousRide?.deliveryPaymentCollected == true,
+                payload['deliveryPaymentCollected'] == true ||
+                    payload['deliveryPaymentCollected'] == 1 ||
+                    previousRide?.deliveryPaymentCollected == true,
           );
         } else {
           _activeRides.remove(rideId);
@@ -549,12 +564,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final matchingDriverIds = <int>{
       if (!_hasMapSearchQuery) ..._drivers.keys,
       for (final driver in _drivers.values)
-        if (_hasMapSearchQuery && MapSearchPresentation.matchesIdentity(
-          query: _mapSearchQuery,
-          name: driver.fullName,
-          phone: driver.phone,
-          licensePlate: driver.licensePlate,
-        ))
+        if (_hasMapSearchQuery &&
+            MapSearchPresentation.matchesIdentity(
+              query: _mapSearchQuery,
+              name: driver.fullName,
+              phone: driver.phone,
+              licensePlate: driver.licensePlate,
+            ))
           driver.id,
       for (final ride in _activeRides.values)
         if (_hasMapSearchQuery &&
@@ -680,10 +696,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         updatedAt: DriverMarkerPresentation.formatLastUpdated(driver.updatedAt),
         statusColor: presentation.color,
         rideId: activeRide?.rideId,
-        rideStatus:
-          activeRide == null ? null : _rideStatusLabel(activeRide),
+        rideStatus: activeRide == null ? null : _rideStatusLabel(activeRide),
         deliveryPaymentCollected: activeRide?.isDelivery == true &&
-          activeRide?.deliveryPaymentCollected == true,
+            activeRide?.deliveryPaymentCollected == true,
       );
     }
     final matchingRiderIds = _matchingRiderIds;
@@ -704,10 +719,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         updatedAt: DriverMarkerPresentation.formatLastUpdated(rider.updatedAt),
         statusColor: presentation.color,
         rideId: activeRide?.rideId,
-        rideStatus:
-          activeRide == null ? null : _rideStatusLabel(activeRide),
+        rideStatus: activeRide == null ? null : _rideStatusLabel(activeRide),
         deliveryPaymentCollected: activeRide?.isDelivery == true &&
-          activeRide?.deliveryPaymentCollected == true,
+            activeRide?.deliveryPaymentCollected == true,
       );
     }
     return details;
@@ -808,7 +822,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           final icon = _driverMarkerIcons[category]?[presentation.color];
           if (icon == null) return null;
           final markerId = MarkerId('driver-${driver.id}');
-            final lastUpdate =
+          final lastUpdate =
               DriverMarkerPresentation.formatLastUpdated(driver.updatedAt);
           return Marker(
             markerId: markerId,
@@ -836,7 +850,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final icon = _markerIcons[presentation.color];
       if (icon == null) continue;
       final markerId = MarkerId('rider-${rider.id}');
-        final lastUpdate =
+      final lastUpdate =
           DriverMarkerPresentation.formatLastUpdated(rider.updatedAt);
       markers.add(Marker(
         markerId: markerId,
@@ -1059,19 +1073,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     constraints.maxWidth - cardWidth - 12),
                               )
                               .toDouble();
-                            final cardHeight = 190.0 +
-                              (details?.rideId != null ? 26.0 : 0.0) +
-                              (details?.rideStatus != null ? 26.0 : 0.0) +
-                              (details?.deliveryPaymentCollected == true
-                                ? 26.0
-                                : 0.0);
+                      final cardHeight = 190.0 +
+                          (details?.rideId != null ? 26.0 : 0.0) +
+                          (details?.rideStatus != null ? 26.0 : 0.0) +
+                          (details?.deliveryPaymentCollected == true
+                              ? 26.0
+                              : 0.0);
                       final cardTop = position == null
                           ? 12.0
                           : (position.dy + 20)
                               .clamp(
                                 12.0,
-                                math.max(
-                                    12.0, constraints.maxHeight - cardHeight - 12),
+                                math.max(12.0,
+                                    constraints.maxHeight - cardHeight - 12),
                               )
                               .toDouble();
                       return Stack(
@@ -1119,22 +1133,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       onChanged: _handleMapSearchChanged,
                                       decoration: InputDecoration(
                                         hintText:
-                                          'ابحث بالاسم أو الجوال أو رقم السيارة أو الرحلة',
+                                            'ابحث بالاسم أو الجوال أو رقم السيارة أو الرحلة',
                                         prefixIcon: const Icon(Icons.search),
-                                        suffixIcon:
-                                            _mapSearchController.text.isEmpty
-                                                ? null
-                                                : IconButton(
-                                                    tooltip: 'مسح البحث',
-                                                    onPressed: () {
-                                                      _mapSearchController
-                                                          .clear();
-                                                      _handleMapSearchChanged(
-                                                          '');
-                                                    },
-                                                    icon: const Icon(
-                                                        Icons.clear),
-                                                  ),
+                                        suffixIcon: _mapSearchController
+                                                .text.isEmpty
+                                            ? null
+                                            : IconButton(
+                                                tooltip: 'مسح البحث',
+                                                onPressed: () {
+                                                  _mapSearchController.clear();
+                                                  _handleMapSearchChanged('');
+                                                },
+                                                icon: const Icon(Icons.clear),
+                                              ),
                                         border: InputBorder.none,
                                         isDense: true,
                                         contentPadding:
@@ -1187,9 +1198,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   status: details.status,
                                   updatedAt: details.updatedAt,
                                   statusColor: details.statusColor,
-                                    rideId: details.rideId,
-                                    rideStatus: details.rideStatus,
-                                    deliveryPaymentCollected:
+                                  rideId: details.rideId,
+                                  rideStatus: details.rideStatus,
+                                  deliveryPaymentCollected:
                                       details.deliveryPaymentCollected,
                                   onDismiss: () => setState(() {
                                     _selectedMarkerId = null;
@@ -1244,7 +1255,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           onSessionExpired: widget.onLogout,
                           canManageSecurity:
                               widget.adminSession.can('security.manage'),
-                            canManageCoupons:
+                          canManageCoupons:
                               widget.adminSession.can('coupons.manage'),
                         ),
                   if (widget.adminSession.can('support.conversations'))
@@ -1313,26 +1324,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 child: SafeArea(
                   child: MapStatsOverlay(
                     onlineGoFast: _drivers.values
-                      .where((driver) =>
-                        driver.isOnline &&
-                        DriverMarkerPresentation.driverMarkerCategory(
-                            driver.vehicleCategory) ==
-                          'standard')
-                      .length,
+                        .where((driver) =>
+                            driver.isOnline &&
+                            DriverMarkerPresentation.driverMarkerCategory(
+                                    driver.vehicleCategory) ==
+                                'standard')
+                        .length,
                     onlineGoTalabat: _drivers.values
-                      .where((driver) =>
-                        driver.isOnline &&
-                        DriverMarkerPresentation.driverMarkerCategory(
-                            driver.vehicleCategory) ==
-                          'comfort')
-                      .length,
+                        .where((driver) =>
+                            driver.isOnline &&
+                            DriverMarkerPresentation.driverMarkerCategory(
+                                    driver.vehicleCategory) ==
+                                'comfort')
+                        .length,
                     onlineGoScooter: _drivers.values
-                      .where((driver) =>
-                        driver.isOnline &&
-                        DriverMarkerPresentation.driverMarkerCategory(
-                            driver.vehicleCategory) ==
-                          'scooter')
-                      .length,
+                        .where((driver) =>
+                            driver.isOnline &&
+                            DriverMarkerPresentation.driverMarkerCategory(
+                                    driver.vehicleCategory) ==
+                                'scooter')
+                        .length,
                     offlineDrivers: _drivers.values
                         .where((driver) => !driver.isOnline)
                         .length,
@@ -1558,10 +1569,10 @@ class _ActiveRide {
       riderId: riderId,
       driverId: driverId,
       status: status,
-        isDelivery: json['isDelivery'] == true ||
+      isDelivery: json['isDelivery'] == true ||
           json['isDelivery'] == 1 ||
           json['deliveryDescription'] != null,
-        deliveryPaymentCollected: json['deliveryPaymentCollected'] == true ||
+      deliveryPaymentCollected: json['deliveryPaymentCollected'] == true ||
           json['deliveryPaymentCollected'] == 1 ||
           json['deliveryPaymentCollectedAt'] != null,
     );
