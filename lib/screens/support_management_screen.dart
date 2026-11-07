@@ -813,34 +813,37 @@ class SupportManagementScreenState extends State<SupportManagementScreen> {
             ),
           ),
         if (!widget.ticketsMode || detail?['status'] != 'resolved')
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _replyController,
-                    maxLength: widget.ticketsMode ? 5000 : 1000,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      hintText: 'اكتب الرد',
-                      counterText: '',
-                      border: OutlineInputBorder(),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _replyController,
+                      maxLength: widget.ticketsMode ? 5000 : 1000,
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        hintText: 'اكتب الرد',
+                        counterText: '',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  tooltip: 'إرسال الرد',
-                  onPressed: _sending ? null : _sendReply,
-                  icon: _sending
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.send),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    tooltip: 'إرسال الرد',
+                    onPressed: _sending ? null : _sendReply,
+                    icon: _sending
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.send),
+                  ),
+                ],
+              ),
             ),
           ),
       ],

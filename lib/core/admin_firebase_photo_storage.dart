@@ -4,7 +4,8 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+  show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:image_picker/image_picker.dart';
 
 import '../firebase_options.dart';
@@ -202,15 +203,19 @@ class AdminFirebasePhotoStorage {
   }
 
   static Future<FirebaseApp> _firebaseApp() async {
-    if (!kIsWeb) {
-      throw UnsupportedError('رفع صور الإدارة متاح من لوحة الويب فقط');
-    }
+    final options = kIsWeb
+        ? DefaultFirebaseOptions.web
+        : defaultTargetPlatform == TargetPlatform.android
+            ? DefaultFirebaseOptions.android
+            : throw UnsupportedError(
+                'رفع صور الإدارة متاح من الويب وAndroid فقط',
+              );
     final existing = Firebase.apps.where((app) => app.name == _appName);
     if (existing.isNotEmpty) return _validateApp(existing.first);
 
     _appInitialization ??= Firebase.initializeApp(
       name: _appName,
-      options: DefaultFirebaseOptions.web,
+      options: options,
     );
     try {
       return _validateApp(await _appInitialization!);
@@ -245,7 +250,7 @@ class AdminFirebasePhotoStorage {
       throw StateError('تعذر الحصول على صلاحية رفع الصورة');
     }
     final auth = FirebaseAuth.instanceFor(app: app);
-    await auth.setPersistence(Persistence.NONE);
+    if (kIsWeb) await auth.setPersistence(Persistence.NONE);
     await auth.signInWithCustomToken(customToken);
     return auth;
   }

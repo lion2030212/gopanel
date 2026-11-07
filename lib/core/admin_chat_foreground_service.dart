@@ -38,7 +38,6 @@ class AdminChatForegroundService {
         allowWakeLock: true,
         allowWifiLock: true,
         allowAutoRestart: true,
-        stopWithTask: false,
       ),
     );
     _initialized = true;

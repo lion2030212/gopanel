@@ -32,9 +32,7 @@ class AdminPushNotifications {
   bool _started = false;
 
   Future<void> start() async {
-    if (_started ||
-        kIsWeb ||
-        defaultTargetPlatform != TargetPlatform.android) {
+    if (_started || kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       return;
     }
     _started = true;
@@ -99,6 +97,7 @@ class AdminPushNotifications {
           '(محاولة $attempt، HTTP ${error.response?.statusCode ?? 'غير متاح'}): '
           '${error.response?.data ?? error.message}',
         );
+        if (error.response?.statusCode == 401) return;
         if (attempt < 3) {
           await Future<void>.delayed(Duration(seconds: attempt * 2));
         }
